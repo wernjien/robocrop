@@ -1,0 +1,13 @@
+.venv/
+dataset/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+Thumbs.db
+.claude/settings.local.json
+
+# Personal configuration and generated files (shouldn't be committed)
+traincrop.toml
+*.local.toml
+training_config.json

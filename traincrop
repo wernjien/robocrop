@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# traincrop - launcher.
+#
+# Creates a private virtualenv beside this script on first run, installs what
+# is needed, and hands over to the Python entry point. After that first run it
+# adds a few milliseconds and no network traffic.
+#
+#   ./traincrop --input ~/Pictures/portraits --output ./dataset
+#
+# Environment:
+#   TRAINCROP_VENV      virtualenv location (default: <script dir>/.venv)
+#   TRAINCROP_PYTHON    interpreter used to build it (default: python3)
+#   TRAINCROP_NO_VLM=1  skip the captioning dependencies (torch, transformers)
+#   TRAINCROP_SKIP_SYNC=1  never touch pip, even if something looks missing
+
+set -euo pipefail
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+venv="${TRAINCROP_VENV:-$here/.venv}"
+python_bin="${TRAINCROP_PYTHON:-python3}"
+py="$venv/bin/python"
+# Bumped whenever requirements change, so existing installs re-sync once.
+stamp_file="$venv/.traincrop-deps"
+stamp="v1:$( [ "${TRAINCROP_NO_VLM:-0}" = "1" ] && echo core || echo full )"
+
+die() { printf 'traincrop: %s\n' "$1" >&2; exit 1; }
+
+if [ ! -x "$py" ]; then
+  command -v "$python_bin" >/dev/null 2>&1 \
+    || die "no '$python_bin' on PATH; install Python 3.11+ or set TRAINCROP_PYTHON"
+
+  version="$("$python_bin" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  "$python_bin" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+    || die "Python 3.11 or newer is required (found $version)"
+
+  printf 'traincrop: creating virtualenv in %s (first run only)\n' "$venv" >&2
+  "$python_bin" -m venv "$venv" || die "could not create a virtualenv at $venv"
+  "$py" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
+  rm -f "$stamp_file"
+fi
+
+if [ "${TRAINCROP_SKIP_SYNC:-0}" != "1" ] && [ "$(cat "$stamp_file" 2>/dev/null || true)" != "$stamp" ]; then
+  printf 'traincrop: installing dependencies (first run only, this takes a few minutes)\n' >&2
+  "$py" -m pip install --quiet -r "$here/requirements.txt" \
+    || die "dependency install failed; see the output above"
+  if [ "${TRAINCROP_NO_VLM:-0}" != "1" ]; then
+    "$py" -m pip install --quiet -r "$here/requirements-caption.txt" \
+      || die "caption dependency install failed; re-run with TRAINCROP_NO_VLM=1 to skip it"
+  fi
+  printf '%s' "$stamp" > "$stamp_file"
+fi
+
+export PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$py" -m traincrop "$@"

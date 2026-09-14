@@ -1,0 +1,50 @@
+# traincrop configuration.
+#
+#   ./traincrop --config traincrop.example.toml
+#
+# Every key matches a command-line flag with dashes turned into underscores.
+# Anything you also pass on the command line wins over this file.
+
+input  = "~/Pictures/portraits"
+output = "./dataset"
+
+# ---- detection ----------------------------------------------------------
+detector  = "yunet"     # yunet | haar | yolox
+min_score = 0.8         # drop detections below this confidence
+multi     = "all"       # all | largest | skip
+
+# Crop bodies instead of faces:
+# detector = "yolox"
+# detector_opts = { classes = "person" }
+
+# ---- crop geometry ------------------------------------------------------
+padding   = 20          # percent added to EVERY side of the detection
+sizes     = [512, 768, 1024]
+min_ratio = 0.8         # a detection must reach 80% of a size to earn it
+min_sharpness = 10      # drop blurry crops below this score; 0 disables it.
+                        # No fixed ceiling (unlike min_ratio/min_score) -- it's
+                        # a Laplacian-variance score, not a fraction. Real sharp
+                        # crops typically land 15-90+; go higher than that only
+                        # if you've checked your own manifest.jsonl scores first.
+base_mode = "max"       # how the box becomes a square: max | mean | width | height | diag
+# offset_y  = -0.08     # commented out = use the detector's own correction
+                        # (-0.08 for face detectors, 0 for yolox bodies).
+                        # Set 0.0 to disable it, or go lower for more headroom.
+edge      = "shift"     # shift | extend | skip
+fill      = "blur"      # only used when edge = "extend"
+
+# ---- output -------------------------------------------------------------
+format  = "png"         # png | jpg | webp
+quality = 95            # jpg/webp only
+prefix  = ""            # e.g. "subject_" -> subject_0001.png
+digits  = 4
+
+# ---- captions -----------------------------------------------------------
+captioner     = "vlm"       # vlm | template | none
+caption_model = "smolvlm"   # see ./traincrop --list-models
+trigger       = ""          # optional: a unique word to activate this LoRA
+                            # e.g. "my subject" or leave empty for no trigger
+caption_batch = 4
+
+# Remove phrases you never want in a caption:
+# caption_drop = ["\\bblurry\\b", ",?\\s*watermark"]
