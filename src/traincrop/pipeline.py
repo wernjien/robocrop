@@ -17,7 +17,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Sequence
 
@@ -137,6 +137,15 @@ class Pipeline:
     def run(self) -> Stats:
         started = time.monotonic()
         cfg = self.cfg
+
+        if cfg.training_config_only:
+            self._training_config_only_run()
+            self.stats.seconds = time.monotonic() - started
+            return self.stats
+        if cfg.caption_only:
+            self._caption_only_run()
+            self.stats.seconds = time.monotonic() - started
+            return self.stats
 
         paths = list(images.iter_images(
             cfg.input,
@@ -440,6 +449,77 @@ class Pipeline:
                 if len(pt) >= 2
             },
         )
+
+    # -- alternate run modes -----------------------------------------------
+    def _caption_only_run(self) -> None:
+        """Caption an existing --output dataset without detecting or cropping.
+
+        Regions and landmarks come back from manifest.jsonl, so measured
+        (template) and pose-aware captions work exactly as they would fresh
+        off a crop pass.
+        """
+        cfg = self.cfg
+        self.records = self._load_manifest_records()
+
+        # caption_file is trusted from the image path, not the manifest, so
+        # this also works on rows written with --captioner none.
+        for record in self.records:
+            record.caption_file = str(Path(record.image_file).with_suffix(".txt"))
+
+        if cfg.resume:
+            before = len(self.records)
+            self.records = [
+                r for r in self.records
+                if not (cfg.output / r.caption_file).exists()
+            ]
+            self.stats.skipped_existing = before - len(self.records)
+
+        self.stats.scanned = self.stats.written = len(self.records)
+        self.stats.by_tier = {}
+        for record in self.records:
+            self.stats.by_tier[record.tier] = self.stats.by_tier.get(record.tier, 0) + 1
+
+        if not cfg.dry_run and self.records:
+            # _caption_pass rewrites manifest.jsonl itself; manifest.json is
+            # left alone so its crop-time stats (detections, skips, ...) from
+            # the original run are not clobbered by this partial one.
+            self._caption_pass()
+
+    def _training_config_only_run(self) -> None:
+        """(Re)generate training_config.json for an existing --output dataset,
+        without cropping or captioning anything."""
+        cfg = self.cfg
+        records = self._load_manifest_records()
+
+        self.stats.scanned = self.stats.written = len(records)
+        for record in records:
+            self.stats.by_tier[record.tier] = self.stats.by_tier.get(record.tier, 0) + 1
+
+        if not cfg.dry_run and records:
+            self._write_training_config()
+
+    def _load_manifest_records(self) -> list[CropRecord]:
+        cfg = self.cfg
+        manifest = cfg.output / MANIFEST_NAME
+        if not manifest.exists():
+            raise FileExistsError(
+                f"{manifest} not found; run traincrop without --caption-only / "
+                f"--training-config-only first to produce a dataset"
+            )
+        known = {f.name for f in fields(CropRecord)}
+        records: list[CropRecord] = []
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # tolerate a torn final line from an interrupted run
+            records.append(CropRecord(**{k: v for k, v in row.items() if k in known}))
+        if not records:
+            raise FileExistsError(f"{manifest} has no crop records")
+        return records
 
     # -- output helpers ---------------------------------------------------
     def _image_name(self, index: int, tier: int) -> str:

@@ -48,11 +48,20 @@ examples:
   # force a single output size and accept smaller objects
   traincrop -i ./photos -o ./dataset --sizes 768 --min-ratio 0.8
 
+  # crop only, no captions (write .txt files later, or never)
+  traincrop -i ./photos -o ./dataset --captioner none
+
   # captions only from measured attributes, no model download
   traincrop -i ./photos -o ./dataset --captioner template
 
+  # caption an already-cropped --output dataset, no re-detection
+  traincrop -o ./dataset --caption-only --captioner vlm
+
   # also emit a OneTrainer config for this dataset
   traincrop -i ./photos -o ./dataset --training-config
+
+  # (re)generate just the OneTrainer config for an existing dataset
+  traincrop -o ./dataset --training-config-only
 
   # loosen or disable the blur check
   traincrop -i ./photos -o ./dataset --min-sharpness 5
@@ -195,6 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="remove text matching this regex from captions (repeatable)")
     add(cap, "--caption-max-chars", type=int, metavar="N",
         help="trim captions to roughly this length at a comma (0 = no limit)")
+    add(cap, "--caption-only", action="store_true",
+        help="caption an existing --output dataset instead of running "
+             "detection/crop: rebuilds regions from manifest.jsonl and "
+             "(re)writes .txt files; with --resume, only crops missing a "
+             "caption file are captioned")
 
     tc = parser.add_argument_group("training config")
     add(tc, "--training-config", action="store_true",
@@ -202,6 +216,10 @@ def build_parser() -> argparse.ArgumentParser:
              "traincrop.onetrainer.example.json with 'resolution' set to the "
              "smallest tier produced and 'epochs' computed from the crop "
              "count (targets ~4000 steps)")
+    add(tc, "--training-config-only", action="store_true",
+        help="only (re)generate training_config.json for an existing "
+             "--output dataset, reading manifest.jsonl; no cropping or "
+             "captioning happens")
 
     run = parser.add_argument_group("run")
     add(run, "-j", "--workers", type=int, metavar="N",
@@ -319,7 +337,7 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
         config.validate()
     except ValueError as exc:
         raise SystemExit(str(exc))
-    if not config.input.is_dir():
+    if not (config.caption_only or config.training_config_only) and not config.input.is_dir():
         raise SystemExit(f"input directory not found: {config.input}")
     return config
 
@@ -376,6 +394,13 @@ def _summarise(config: Config, stats, emit) -> None:
     if config.quiet:
         return
 
+    if config.training_config_only:
+        _summarise_training_config_only(config, stats, emit)
+        return
+    if config.caption_only:
+        _summarise_caption_only(config, stats, emit)
+        return
+
     tiers = ", ".join(f"{size}: {count}" for size, count in sorted(stats.by_tier.items()))
     lines = [
         "",
@@ -403,4 +428,28 @@ def _summarise(config: Config, stats, emit) -> None:
         lines.append(f"training config  {config.output / TRAINING_CONFIG_NAME}")
     if not config.dry_run and stats.written:
         lines.append(f"\noutput           {config.output}")
+    emit("info", "\n".join(lines))
+
+
+def _summarise_caption_only(config: Config, stats, emit) -> None:
+    lines = [
+        "",
+        f"crops loaded     {stats.written}",
+        f"captions written {stats.captioned}",
+    ]
+    if stats.skipped_existing:
+        lines.append(f"skipped          {stats.skipped_existing} already captioned (resume)")
+    if stats.errors:
+        lines.append(f"errors           {stats.errors}")
+    emit("info", "\n".join(lines))
+
+
+def _summarise_training_config_only(config: Config, stats, emit) -> None:
+    tiers = ", ".join(f"{size}: {count}" for size, count in sorted(stats.by_tier.items()))
+    lines = [
+        "",
+        f"dataset          {stats.written} crop(s)" + (f"  ({tiers})" if tiers else ""),
+    ]
+    if not config.dry_run and stats.written:
+        lines.append(f"training config  {config.output / TRAINING_CONFIG_NAME}")
     emit("info", "\n".join(lines))

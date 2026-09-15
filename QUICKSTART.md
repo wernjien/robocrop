@@ -48,6 +48,15 @@ No downloads, no writes. Just tells you what you'd get.
 
 # Offline captions (no model download)
 ./traincrop -i ./photos -o ./dataset --captioner template
+
+# Crop only, add captions later
+./traincrop -i ./photos -o ./dataset --captioner none
+
+# ...then caption that dataset without re-cropping
+./traincrop -o ./dataset --caption-only --captioner vlm
+
+# (Re)generate just the OneTrainer config for an existing dataset
+./traincrop -o ./dataset --training-config-only
 ```
 
 ### Persistent settings (recommended):

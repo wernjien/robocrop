@@ -27,6 +27,9 @@ dataset/
 
 # Crop cats
 ./traincrop -i ~/Pictures/cats -o ./dataset --detector yolox --detector-opt classes=cat
+
+# Crop only, add captions later (or never)
+./traincrop -i ~/Pictures/portraits -o ./dataset --captioner none
 ```
 
 Or set up a `traincrop.toml` file once and reuse it:
@@ -206,6 +209,25 @@ Other options:
 - `--caption-prompt "..."` — tell the model what to describe.
 - `--caption-drop "\bblurry\b"` — delete phrases you never want (repeatable).
 
+### Captioning a dataset you already cropped
+
+`--caption-only` skips detection and cropping altogether and writes captions
+into an existing `--output` dataset, rebuilding each crop's region (and
+landmarks, for pose hints) from its `manifest.jsonl`:
+
+```bash
+# cropped earlier with --captioner none; add captions now
+./traincrop -o ./dataset --caption-only --captioner vlm
+
+# only caption crops that don't have a .txt file yet
+./traincrop -o ./dataset --caption-only --captioner template --resume
+```
+
+This is also how you switch caption backends after the fact, or add a
+trigger word/suffix you forgot the first time — it rewrites every `.txt`
+(and `manifest.jsonl`) unless `--resume` is given. `--input` is not needed;
+only `--output` is read.
+
 ## Several faces in one photo
 
 Every face becomes its own numbered crop by default. A face too small for the
@@ -330,6 +352,18 @@ If the dataset has zero crops, or the bundled template is missing/invalid,
 nothing is written and a warning is printed — the rest of the run is
 unaffected.
 
+To (re)generate `training_config.json` for a dataset you already produced,
+without touching crops or captions, use `--training-config-only`:
+
+```bash
+./traincrop -o ./dataset --training-config-only
+```
+
+It reads `manifest.jsonl` for the tier counts and crop total and writes the
+config the same way `--training-config` would — useful after tweaking
+`traincrop.onetrainer.example.json`, or if you skipped `--training-config`
+on the original run. Like `--caption-only`, it only reads `--output`.
+
 ## Useful flags
 
 ```
@@ -343,6 +377,7 @@ unaffected.
     --per-size-dirs     write into 512/, 768/, 1024/ subfolders
 -t, --trigger WORD      trigger word placed first in every caption
 -c, --captioner NAME    vlm | template | none
+    --caption-only      caption an existing --output dataset, no re-cropping
     --multi-face MODE   all | largest | skip
 -d, --detector NAME     yunet | haar | yolox
     --exclude GLOB      skip matching paths (repeatable)
@@ -350,7 +385,8 @@ unaffected.
 -j, --workers N         threads for the detect/crop pass
 -n, --dry-run           report only, write nothing
 -v, --verbose           log every crop
-    --training-config   write a filled-in OneTrainer config alongside the crops
+    --training-config       write a filled-in OneTrainer config alongside the crops
+    --training-config-only  write it for an existing --output dataset, nothing else
 ```
 
 `./traincrop --help` lists all of them.

@@ -73,6 +73,12 @@ class Config:
 
     # -- training config ---------------------------------------------------
     training_config: bool = False
+    training_config_only: bool = False
+
+    # -- alternate run modes ----------------------------------------------
+    caption_only: bool = False
+    """Skip detection/cropping; caption an existing --output dataset,
+    rebuilding crop regions from its manifest.jsonl."""
 
     # -- validation ------------------------------------------------------
     def validate(self) -> None:
@@ -104,6 +110,10 @@ class Config:
             problems.append("--fill must be edge, blur, reflect or color")
         if self.overwrite and self.resume:
             problems.append("--overwrite and --resume are mutually exclusive")
+        if self.caption_only and self.training_config_only:
+            problems.append("--caption-only and --training-config-only are mutually exclusive")
+        if self.caption_only and self.captioner == "none":
+            problems.append("--caption-only needs a --captioner other than 'none'")
 
         if problems:
             raise ValueError("invalid configuration:\n  - " + "\n  - ".join(problems))
