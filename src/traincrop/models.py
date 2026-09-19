@@ -16,6 +16,7 @@ from pathlib import Path
 
 _OPENCV_ZOO = "https://github.com/opencv/opencv_zoo/raw/main/models"
 _OPENCV_DATA = "https://raw.githubusercontent.com/opencv/opencv/4.x/data"
+_FSRCNN = "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models"
 
 #: Logical name -> (url, minimum plausible size in bytes).
 #: The size acts as a cheap integrity check: an HTML error page or a truncated
@@ -37,6 +38,7 @@ REGISTRY: dict[str, tuple[str, int]] = {
         f"{_OPENCV_ZOO}/object_detection_yolox/object_detection_yolox_2022nov.onnx",
         20_000_000,
     ),
+    "fsrcnn_x2": (f"{_FSRCNN}/FSRCNN_x2.pb", 30_000),
 }
 
 

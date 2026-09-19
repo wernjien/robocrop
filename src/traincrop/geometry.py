@@ -86,7 +86,8 @@ class CropPlan:
 
     @property
     def scale(self) -> float:
-        """Resample factor. <1 downscales (good), >1 upscales (avoid)."""
+        """Resample factor. <1 downscales (good), >1 needs enlarging (a plain
+        resize by default, or AI upscaling with --upscale)."""
         return self.tier / self.fitted_side
 
 
@@ -118,8 +119,7 @@ def base_side_from(w: float, h: float, mode: BaseSideMode) -> float:
 def choose_tier(measure: float, sizes: Sequence[int], min_ratio: float) -> int | None:
     """Largest configured size whose minimum-size rule ``measure`` satisfies.
 
-    The rule is ``measure >= min_ratio * size``: with the default ratio of 0.8 a
-    820 px measurement qualifies for the 1024 tier. Returns ``None`` when even
+    The rule is ``measure >= min_ratio * size``. Returns ``None`` when even
     the smallest configured size is out of reach.
     """
     for size in sorted(sizes, reverse=True):
@@ -146,10 +146,9 @@ def plan_crop(
     Args:
         region: Detection box in source pixels.
         image_w, image_h: Source image dimensions.
-        padding: Fraction of ``base_side`` added to *each* side. ``0.2`` grows
-            a 400 px base to 400 + 2*80 = 560 px.
-        sizes: Candidate output edge lengths, e.g. ``(512, 768, 1024)``.
-        min_ratio: Fraction of a size the base must reach to qualify for it.
+        padding: Fraction of ``base_side`` added to *each* side.
+        sizes: Candidate output edge lengths.
+        min_ratio: Fraction of a size the base needs to reach to qualify for it.
         base_mode: How to collapse the detection box into a square side.
         offset_x, offset_y: Recentring nudge, as a fraction of ``base_side``.
             Negative ``offset_y`` moves the window up, which helps when a

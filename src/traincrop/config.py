@@ -39,6 +39,10 @@ class Config:
     fill: FillMode = "blur"
     fill_color: tuple[int, int, int] = (0, 0, 0)
     min_sharpness: float = 10.0  # Laplacian-variance floor; 0 disables the check
+    upscale: bool = False
+    """When a crop is smaller than its chosen tier, enlarge it with AI
+    upscaling instead of a plain resize. A crop that already meets or
+    exceeds the tier is always just resized down; this never applies then."""
 
     # -- output ----------------------------------------------------------
     prefix: str = ""

@@ -12,6 +12,10 @@
 #   TRAINCROP_PYTHON    interpreter used to build it (default: python3)
 #   TRAINCROP_NO_VLM=1  skip the captioning dependencies (torch, transformers)
 #   TRAINCROP_SKIP_SYNC=1  never touch pip, even if something looks missing
+#
+# --upscale needs opencv-contrib-python in place of opencv-python; this
+# launcher does not swap it automatically since the two conflict. See
+# requirements-upscale.txt.
 
 set -euo pipefail
 

@@ -1,0 +1,5 @@
+# AI super-resolution for undersized crops (--upscale). Its dnn_superres
+# module isn't in plain opencv-python, so this swaps in the contrib build:
+#   pip uninstall opencv-python
+#   pip install -r requirements-upscale.txt
+opencv-contrib-python>=4.8

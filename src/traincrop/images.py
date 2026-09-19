@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 
+from . import superres
 from .geometry import CropPlan
 
 # Large scans of camera originals trip Pillow's decompression-bomb guard; these
@@ -134,12 +135,16 @@ def extract(
     *,
     fill: FillMode = "blur",
     fill_color: tuple[int, int, int] = (0, 0, 0),
+    upscale: bool = False,
     resample: int = Image.Resampling.LANCZOS,
 ) -> Image.Image:
     """Cut the planned window out of ``image`` and resize it to the tier.
 
     When the window extends past the edge (``edge='extend'``), the missing area
-    is manufactured according to ``fill`` rather than left transparent.
+    is manufactured according to ``fill`` rather than left transparent. A crop
+    smaller than the tier is enlarged with AI upscaling when
+    ``upscale`` is set, and with a plain resize otherwise; a crop that
+    already meets or exceeds the tier is always just resized down to it.
     """
     left, top, right, bottom = plan.rect.rounded()
     width, height = image.size
@@ -152,9 +157,19 @@ def extract(
             image, (left, top, right, bottom), fill=fill, fill_color=fill_color
         )
 
-    if crop.size != (plan.tier, plan.tier):
+    if crop.size[0] < plan.tier and upscale:
+        crop = _upscale_to(crop, plan.tier)
+    elif crop.size != (plan.tier, plan.tier):
         crop = crop.resize((plan.tier, plan.tier), resample)
     return crop
+
+
+def _upscale_to(crop: Image.Image, tier: int) -> Image.Image:
+    enlarged = superres.upscale(to_bgr(crop))
+    result = Image.fromarray(enlarged[:, :, ::-1], mode="RGB")
+    if result.size != (tier, tier):
+        result = result.resize((tier, tier), Image.Resampling.LANCZOS)
+    return result
 
 
 def _crop_extended(

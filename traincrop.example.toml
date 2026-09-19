@@ -9,41 +9,81 @@ input  = "~/Pictures/portraits"
 output = "./dataset"
 
 # ---- detection ----------------------------------------------------------
-detector  = "yunet"     # yunet | haar | yolox
-min_score = 0.8         # drop detections below this confidence
-multi     = "all"       # all | largest | skip
+# yunet | haar | yolox
+detector  = "yunet"
+
+# drop detections below this confidence
+min_score = 0.8
+
+# all | largest | skip
+multi     = "all"
 
 # Crop bodies instead of faces:
 # detector = "yolox"
 # detector_opts = { classes = "person" }
 
 # ---- crop geometry ------------------------------------------------------
-padding   = 20          # percent added to EVERY side of the detection
+# percent added to every side of the detection
+padding   = 10
+
 sizes     = [512, 768, 1024]
-min_ratio = 0.8         # a detection must reach 80% of a size to earn it
-min_sharpness = 10      # drop blurry crops below this score; 0 disables it.
-                        # No fixed ceiling (unlike min_ratio/min_score) -- it's
-                        # a Laplacian-variance score, not a fraction. Real sharp
-                        # crops typically land 15-90+; go higher than that only
-                        # if you've checked your own manifest.jsonl scores first.
-base_mode = "max"       # how the box becomes a square: max | mean | width | height | diag
-# offset_y  = -0.08     # commented out = use the detector's own correction
-                        # (-0.08 for face detectors, 0 for yolox bodies).
-                        # Set 0.0 to disable it, or go lower for more headroom.
-edge      = "shift"     # shift | extend | skip
-fill      = "blur"      # only used when edge = "extend"
+
+# fraction of a size a detection needs to reach to qualify for it.
+# The lower this is, the more a qualifying crop can need enlarging -- keep
+# it above 0.5 so that need never exceeds what the bundled AI upscaling
+# model handles in one pass (see `upscale` below); going lower falls back
+# to a plain resize for the remainder.
+min_ratio = 0.7
+
+# drop blurry crops below this score; 0 disables it.
+# No fixed ceiling (unlike min_ratio/min_score) -- it's
+# a Laplacian-variance score, not a fraction. Real sharp
+# crops typically land 15-90+; go higher than that only
+# if you've checked your own manifest.jsonl scores first.
+min_sharpness = 15
+
+# how the box becomes a square: max | mean | width | height | diag
+base_mode = "max"
+
+# commented out = use the detector's own correction
+# (-0.08 for face detectors, 0 for yolox bodies).
+# Set 0.0 to disable it, or go lower for more headroom.
+# offset_y  = -0.08
+
+# shift | extend | skip
+edge      = "shift"
+
+# only used when edge = "extend"
+fill      = "blur"
+
+# enlarge undersized crops with AI upscaling instead of a plain resize;
+# needs opencv-contrib-python. Crops that already meet or exceed
+# their tier are unaffected either way.
+# upscale = true
 
 # ---- output -------------------------------------------------------------
-format  = "png"         # png | jpg | webp
-quality = 95            # jpg/webp only
-prefix  = ""            # e.g. "subject_" -> subject_0001.png
+# png | jpg | webp
+format  = "png"
+
+# jpg/webp only
+quality = 95
+
+# e.g. "subject_" -> subject_0001.png
+prefix  = ""
+
 digits  = 4
 
 # ---- captions -----------------------------------------------------------
-captioner     = "vlm"       # vlm | template | none
-caption_model = "smolvlm"   # see ./traincrop --list-models
-trigger       = ""          # optional: a unique word to activate this LoRA
-                            # e.g. "my subject" or leave empty for no trigger
+# vlm | template | none
+captioner     = "vlm"
+
+# see ./traincrop --list-models
+caption_model = "smolvlm"
+
+# optional: a unique word to activate this LoRA
+# e.g. "my subject" or leave empty for no trigger
+trigger       = ""
+
 caption_batch = 4
 
 # Remove phrases you never want in a caption:

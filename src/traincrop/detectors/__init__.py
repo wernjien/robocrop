@@ -22,7 +22,7 @@ _BACKENDS: dict[str, str] = {
 
 #: Shown in --help so the choices explain themselves.
 DESCRIPTIONS: dict[str, str] = {
-    "yunet": "OpenCV YuNet face detector - accurate, fast, 5 landmarks (default)",
+    "yunet": "OpenCV YuNet face detector - accurate, fast, 5 landmarks",
     "haar": "Haar cascade - last-resort fallback, frontal faces only",
     "yolox": "YOLOX - bodies and objects, 80 COCO classes; "
              "see --detector-opt classes=...",

@@ -45,6 +45,22 @@ Or skip it if already installed:
 TRAINCROP_NO_VLM=1 ./traincrop -i ./photos -o ./dataset
 ```
 
+### Want Sharper Enlarged Crops? (`--upscale`)
+
+Undersized crops are enlarged with a plain resize by default. `--upscale`
+switches that to AI upscaling (FSRCNN, a small neural network trained to
+enlarge images), but its `dnn_superres` module isn't in the `opencv-python`
+this project installs automatically — it needs `opencv-contrib-python`
+instead, and the two can't both be installed:
+
+```bash
+.venv/bin/pip uninstall -y opencv-python
+.venv/bin/pip install -r requirements-upscale.txt
+```
+
+Not required for normal use — leave it out and `--upscale` is simply
+unavailable (`traincrop` will say so if you pass it anyway).
+
 ## System Requirements
 
 - **Python:** 3.11+ (check: `python3 --version`)

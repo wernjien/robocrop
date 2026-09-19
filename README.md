@@ -4,13 +4,18 @@ Walks a folder of photos (including every subfolder), detects and crops objects
 of interest square at 512 / 768 / 1024, and writes a caption next to each crop
 for LoRA training. Works with faces, bodies, animals, or any COCO object class.
 
+The output directory holds one image + caption pair per crop, plus two
+manifests summarizing the run:
+
 ```
 dataset/
-  0001.png   0001.txt
-  0002.png   0002.txt
+  0001.png            crop
+  0001.txt            its caption
+  0002.png
+  0002.txt
   ...
-  manifest.jsonl    one row per crop
-  manifest.json     run settings, totals, and every skipped image with a reason
+  manifest.jsonl      one row per crop
+  manifest.json       run settings, totals, and every skipped image with a reason
 ```
 
 ## Run it
@@ -38,8 +43,9 @@ Or set up a `traincrop.toml` file once and reuse it:
 ./traincrop    # auto-loads ./traincrop.toml
 ```
 
-The first run builds a private virtualenv next to the script and installs what
-it needs; after that it starts immediately. Nothing is installed system-wide.
+The first run takes a couple of minutes to set itself up (see
+[Installation & Requirements](#installation--requirements) below); after that
+it starts immediately.
 
 Try the settings before committing to them:
 
@@ -65,7 +71,9 @@ python3 --version    # should be 3.11+
 The first time you run `./traincrop`, it:
 1. Creates a private virtualenv next to the script (`.venv/`)
 2. Installs detection and image processing libraries (~200 MB)
-3. If `--captioner vlm` (the default), downloads a vision-language model (~4.5 GB on first use)
+3. If `--captioner vlm` (the default), also installs captioning libraries —
+   torch, transformers (~900 MB) — and downloads a vision-language model
+   (~4.5 GB on first use)
 4. Caches detector weights (~50 MB)
 
 **This takes 2–5 minutes on first run.** After that, startup is instant.
@@ -77,7 +85,8 @@ Nothing is installed system-wide — everything is local to this directory.
 | What | Size | Location |
 |---|---|---|
 | `.venv/` (Python packages) | 1.1 GB | This directory |
-| `~/.cache/traincrop/` (models) | 4.5–7.5 GB | Your home directory |
+| `~/.cache/traincrop/` (detector weights) | ~50 MB | Your home directory |
+| `~/.cache/huggingface/` (caption model) | 4.5–7.5 GB | Your home directory |
 | Output dataset | ~2–5 MB per 1000 crops | `--output` directory |
 
 **Total first-run disk needed:** ~5.6 GB (1.1 GB + 4.5 GB). Reused across all runs.
@@ -109,32 +118,40 @@ TRAINCROP_NO_VLM=1 ./traincrop -i ./photos -o ./dataset
 ## How a size is chosen
 
 Each crop is produced at the **largest size the detected object can fill**.
-An object qualifies for a size when it reaches 80% of it, measured **before**
-padding is added — padding brings in context, not detail, so it is not allowed
-to inflate the size:
+An object qualifies for a size when it reaches the `--min-ratio` fraction of
+it, measured **before** padding is added — padding brings in context, not
+detail, so it is not allowed to inflate the size.
 
-| Output | Face must be at least |
-|-------:|----------------------:|
-| 1024   | 819 px                |
-|  768   | 614 px                |
-|  512   | 410 px                |
+Objects that fall short of even the smallest configured size are skipped and
+listed in `manifest.json` with the reason, so nothing is upscaled beyond 1.25x
+from a source that cannot support it. Change the threshold with `--min-ratio`,
+or the sizes with `--sizes 768,1024`.
 
-Objects below 410 px are skipped and listed in `manifest.json` with the reason,
-so nothing is upscaled beyond 1.25x from a source that cannot support it.
-Change the threshold with `--min-ratio`, or the sizes with `--sizes 768,1024`.
+A crop that qualifies for a tier but doesn't quite fill it is enlarged to fit.
+By default that's a plain resize; `--upscale` switches it to AI upscaling for
+a sharper result on the enlarged portion, using FSRCNN, a small neural
+network trained specifically to enlarge images. A crop that already meets or
+exceeds its tier is unaffected either way. This needs `opencv-contrib-python`
+in place of `opencv-python` — see `requirements-upscale.txt`.
+
+The bundled FSRCNN model enlarges by 2x in one pass, and the most a
+qualifying crop can need enlarging is `1 / min-ratio` times its own size —
+so keeping `--min-ratio` above 0.5 keeps every enlargement inside what the
+model does in one pass. Below that, the portion beyond 2x falls back to a
+plain resize; `traincrop` warns when a run is configured this way.
 
 ## Padding
 
 `--padding` is a percentage of the detected object added to **every** side:
 
 ```
---padding 20   400 px object -> 400 + 2x80 = 560 px crop -> resized to the chosen size
+--padding 10   400 px object -> 400 + 2x40 = 480 px crop -> resized to the chosen size
 --padding 0    the detection box exactly
 --padding 60   much wider context around the object
 ```
 
 Different detectors apply different centering corrections:
-- **Face detectors** (yunet, haar) lift crops by 8% to keep hair and forehead in frame
+- **Face detectors** (yunet, haar) lift crops to keep hair and forehead in frame
 - **Body detectors** (yolox with person) have no automatic shift
 - Other objects have no automatic shift
 
@@ -159,9 +176,9 @@ drag a genuinely sharp face's score down. The window size is derived from
 `--padding` (a tighter crop excludes less background, a looser one excludes
 more), so it stays correct whatever padding you're using.
 
-The default threshold, **10**, was calibrated against real face crops rather
-than picked arbitrarily: real, sharp photos scored 15–96 in testing, while
-mild artificial blur scored 3–6 — 10 sits in the gap between them. It's
+The default threshold was calibrated against real face crops rather than
+picked arbitrarily: real, sharp photos scored 15–96 in testing, while mild
+artificial blur scored 3–6 — the default sits in the gap between them. It's
 still a heuristic, so every crop's score is recorded in `manifest.jsonl`
 (`sharpness`) whether it was kept or dropped, letting you sanity-check or
 retune it from your own dataset:
@@ -235,8 +252,8 @@ Every face becomes its own numbered crop by default. A face too small for the
 that are actually usable.
 
 ```bash
---multi-face largest   # only the most prominent face per photo
---multi-face skip      # ignore photos with more than one face
+./traincrop -i ./photos -o ./dataset --multi-face largest   # only the most prominent face per photo
+./traincrop -i ./photos -o ./dataset --multi-face skip      # ignore photos with more than one face
 ```
 
 ## Detecting different objects
@@ -340,8 +357,8 @@ The two fields that get overwritten:
 - **`resolution`** — set to the smallest output tier that appears anywhere in
   the run (e.g. `"512"` if the dataset has 512 and 768px crops but no 1024).
   OneTrainer trains at every resolution it's given, resizing images up to
-  fit each one — so listing a larger tier here would upscale the smaller
-  crops that `--min-ratio` was protecting from exactly that.
+  fit each one — so listing a larger tier here would have it upscale crops
+  that `--min-ratio` sized precisely to avoid needing that.
 - **`epochs`** — computed from this run's crop count, targeting roughly 4000
   total training steps (`epochs = 4000 * batch_size / images`, using
   whatever `batch_size` is already in the template), clamped to between 10
@@ -367,10 +384,12 @@ on the original run. Like `--caption-only`, it only reads `--output`.
 ## Useful flags
 
 ```
--p, --padding PCT       percent added to every side (default 20)
--s, --sizes LIST        candidate sizes (default 512,768,1024)
-    --min-ratio F       fraction of a size a face must reach (default 0.8)
-    --min-sharpness F   drop blurry crops below this score, 0 disables (default 10)
+-p, --padding PCT       percent added to every side
+-s, --sizes LIST        candidate sizes
+    --min-ratio F       fraction of a size a face needs to reach
+    --min-sharpness F   drop blurry crops below this score, 0 disables
+    --upscale           enlarge undersized crops with AI upscaling instead of
+                        a plain resize
     --offset-y F        shift the crop up/down, fraction of the box;
                         defaults to the detector's own correction, 0 disables
 -f, --format png|jpg|webp
@@ -426,6 +445,7 @@ Command-line flags always win over the config file, so you can tune a single set
 
 **Models:**
 - **Detector weights** (YuNet: 230 KB, YOLOX: 35 MB) — downloaded once, cached in `~/.cache/traincrop/`
+- **Upscale model** (FSRCNN: ~40 KB, only with `--upscale`) — downloaded once, cached alongside the detector weights
 - **Caption model** (SmolVLM by default: 4.5 GB) — downloaded once, cached in Hugging Face's cache (`~/.cache/huggingface/`), fully offline after first download
 - Model downloads resume on interruption; partial files are never cached
 

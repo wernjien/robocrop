@@ -15,7 +15,7 @@ _BACKENDS: dict[str, str] = {
 }
 
 DESCRIPTIONS: dict[str, str] = {
-    "vlm": "local vision-language model, offline after first download (default)",
+    "vlm": "local vision-language model, offline after first download",
     "template": "measured attributes filled into a format string, no model",
     "none": "write crops only, no .txt files",
 }

@@ -27,7 +27,7 @@ class _Formatter(argparse.RawDescriptionHelpFormatter):
 
 EPILOG = """
 examples:
-  # faces (default): recurse ./photos, 20% padding, local VLM captions
+  # faces (default): recurse ./photos, local VLM captions
   traincrop -i ./photos -o ./dataset
 
   # a character LoRA: trigger word, tighter framing, JPEG output
@@ -69,26 +69,64 @@ examples:
 
 sizing rule:
   A crop is produced at the largest configured size whose minimum is met by the
-  *detected* box, before padding is added:
-
-      1024  needs a detection >= 819 px   (80% of 1024)
-       768  needs a detection >= 614 px
-       512  needs a detection >= 410 px
+  *detected* box, before padding is added: the detection must reach the
+  --min-ratio fraction of that size.
 
   Detections below the smallest threshold are skipped and listed in
-  manifest.json, so nothing is ever upscaled from an unusable source.
+  manifest.json, so nothing is upscaled from an unusable source.
 
 padding:
-  --padding is a percentage of the detected box added to *every* side.
-  --padding 20 turns a 400 px detection into a 560 px crop (400 + 2x80),
-  which is then resized to the chosen size.
+  --padding is a percentage of the detected box added to *every* side, so the
+  crop grows by twice that percentage in total before being resized to the
+  chosen output size.
 
 blur check:
   --min-sharpness scores the central portion of each resized crop with a
   Laplacian-variance blur heuristic (higher is sharper) and drops crops that
   fall below it. Every crop's score is recorded in manifest.jsonl either way,
   kept or dropped, so the default can be tuned from real data. 0 disables it.
+
+upscaling:
+  A crop smaller than its tier is enlarged either way; --upscale only changes
+  the method, from a plain resize to AI upscaling using FSRCNN, a small
+  neural network trained to enlarge images (needs opencv-contrib-python; see
+  requirements-upscale.txt). A crop that already meets or exceeds its tier is
+  always just resized down, --upscale or not.
+
+  The bundled model enlarges 2x per pass, and the most a qualifying crop can
+  need is 1/min-ratio times its own size -- so keep --min-ratio above 0.5 to
+  stay inside that in one pass. Below it, the remainder past 2x falls back
+  to a plain resize, and traincrop warns about it.
 """
+
+
+def _default(name: str) -> str:
+    """Config's actual default for `name`, formatted for --help text.
+
+    Reads it live from the dataclass field instead of hand-typing the value,
+    so --help can never drift out of sync with the real default.
+    """
+    value = Config.__dataclass_fields__[name].default
+    if isinstance(value, tuple):
+        return ",".join(str(v) for v in value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _default_pct(name: str) -> str:
+    """Like `_default`, for a Config fraction shown as a whole percent."""
+    value = Config.__dataclass_fields__[name].default * 100
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def _describe_choices(descriptions: dict[str, str], config_field: str) -> str:
+    """Render a choice group's --help text, marking Config's actual default."""
+    default = _default(config_field)
+    return "; ".join(
+        f"{k} ({v}, default)" if k == default else f"{k} ({v})"
+        for k, v in descriptions.items()
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
     add(io, "-i", "--input", type=Path, metavar="DIR",
         help="directory to scan recursively for images")
     add(io, "-o", "--output", type=Path, metavar="DIR",
-        help="directory to write crops and captions into (default: ./dataset)")
+        help=f"directory to write crops and captions into (default: ./{_default('output')})")
     add(io, "--config", type=Path, metavar="FILE",
         help="TOML file of settings (auto-detected from ./traincrop.toml if it exists); "
              "command-line flags win over it")
@@ -124,75 +162,77 @@ def build_parser() -> argparse.ArgumentParser:
 
     det = parser.add_argument_group("detection")
     add(det, "-d", "--detector", choices=detectors.available(), metavar="NAME",
-        help="detector to use: " + "; ".join(
-            f"{k} ({v})" for k, v in detectors.DESCRIPTIONS.items()))
+        help="detector to use: "
+             + _describe_choices(detectors.DESCRIPTIONS, "detector"))
     add(det, "--detector-opt", action="append", metavar="K=V",
         help="extra option for the detector, e.g. classes=person (repeatable)")
     add(det, "--min-score", type=float, metavar="F",
-        help="discard detections below this confidence, 0-1 (default: 0.8)")
+        help=f"discard detections below this confidence, 0-1 (default: {_default('min_score')})")
     add(det, "--multi-face", dest="multi", choices=("all", "largest", "skip"),
-        help="images with several detections: crop all of them (default), "
-             "only the largest, or skip the image")
+        help="images with several detections: crop all of them, only the "
+             f"largest, or skip the image (default: {_default('multi')})")
     add(det, "--max-per-image", type=int, metavar="N",
         help="cap crops taken from one image (0 = no cap)")
 
     crop = parser.add_argument_group("crop geometry")
     add(crop, "-p", "--padding", type=float, metavar="PCT",
-        help="percent of the detection added to every side (default: 20)")
+        help=f"percent of the detection added to every side (default: {_default_pct('padding')})")
     add(crop, "-s", "--sizes", metavar="LIST",
-        help="candidate square sizes, largest achievable wins "
-             "(default: 512,768,1024)")
+        help=f"candidate square sizes, largest achievable wins (default: {_default('sizes')})")
     add(crop, "--min-ratio", type=float, metavar="F",
-        help="fraction of a size the detection must reach to earn it "
-             "(default: 0.8)")
+        help="fraction of a size the detection needs to reach to earn it "
+             f"(default: {_default('min_ratio')})")
     add(crop, "--base-mode", choices=("max", "mean", "width", "height", "diag"),
-        help="how the detection box becomes a square side (default: max)")
+        help=f"how the detection box becomes a square side (default: {_default('base_mode')})")
     add(crop, "--offset-y", type=float, metavar="F",
         help="shift the crop vertically by this fraction of the box; negative "
-             "moves up. Defaults to the detector's own correction (-0.08 for "
-             "face detectors, to keep hair and forehead in frame); pass 0 to "
-             "disable")
+             "moves up. Defaults to the detector's own correction, to keep "
+             "hair and forehead in frame; pass 0 to disable")
     add(crop, "--offset-x", type=float, metavar="F",
         help="shift the crop horizontally by this fraction of the box")
     add(crop, "--edge", choices=("shift", "extend", "skip"),
-        help="when the padded crop runs off the image: slide it back in "
-             "(default), extend the canvas, or skip the detection")
+        help="when the padded crop runs off the image: slide it back in, "
+             f"extend the canvas, or skip the detection (default: {_default('edge')})")
     add(crop, "--fill", choices=("edge", "blur", "reflect", "color"),
-        help="how to fill invented area when --edge extend (default: blur)")
+        help=f"how to fill invented area when --edge extend (default: {_default('fill')})")
     add(crop, "--fill-color", metavar="R,G,B",
-        help="fill colour for --fill color (default: 0,0,0)")
+        help=f"fill colour for --fill color (default: {_default('fill_color')})")
     add(crop, "--min-sharpness", type=float, metavar="F",
         help="drop crops below this Laplacian-variance sharpness score, "
              "measured on the central portion of the resized crop; "
-             "0 disables the check (default: 10)")
+             f"0 disables the check (default: {_default('min_sharpness')})")
+    add(crop, "--upscale", action="store_true",
+        help="enlarge undersized crops with AI upscaling instead of a "
+             "plain resize; needs opencv-contrib-python. Crops that already "
+             "meet or exceed their tier are unaffected")
 
     out = parser.add_argument_group("output files")
     add(out, "--prefix", metavar="STR", help="filename prefix before the number")
     add(out, "--start-index", type=int, metavar="N",
-        help="first output number (default: 1)")
+        help=f"first output number (default: {_default('start_index')})")
     add(out, "--digits", type=int, metavar="N",
-        help="zero-padded width of the number (default: 4 -> 0001.png)")
+        help=f"zero-padded width of the number (default: {_default('digits')})")
     add(out, "-f", "--format", choices=("png", "jpg", "webp"),
-        help="output image format (default: png)")
+        help=f"output image format (default: {_default('format')})")
     add(out, "--quality", type=int, metavar="N",
-        help="quality for jpg/webp, 1-100 (default: 95)")
+        help=f"quality for jpg/webp, 1-100 (default: {_default('quality')})")
     add(out, "--per-size-dirs", action="store_true",
         help="write into 512/, 768/, 1024/ subdirectories")
 
     cap = parser.add_argument_group("captions")
     add(cap, "-c", "--captioner", choices=captioners.available(), metavar="NAME",
-        help="caption backend: " + "; ".join(
-            f"{k} ({v})" for k, v in captioners.DESCRIPTIONS.items()))
+        help="caption backend: "
+             + _describe_choices(captioners.DESCRIPTIONS, "captioner"))
     add(cap, "--caption-model", metavar="NAME",
         help="VLM preset or Hugging Face id (see --list-models)")
     add(cap, "--caption-prompt", metavar="TEXT",
         help="instruction given to the VLM; overrides the built-in prompt")
     add(cap, "--caption-device", choices=("auto", "mps", "cuda", "cpu"),
-        help="where to run the VLM (default: auto)")
+        help=f"where to run the VLM (default: {_default('caption_device')})")
     add(cap, "--caption-batch", type=int, metavar="N",
-        help="crops per VLM batch; lower it if memory is tight (default: 4)")
+        help=f"crops per VLM batch; lower it if memory is tight (default: {_default('caption_batch')})")
     add(cap, "--caption-tokens", type=int, metavar="N",
-        help="max new tokens per caption (default: 96)")
+        help=f"max new tokens per caption (default: {_default('caption_tokens')})")
     add(cap, "--caption-template", metavar="STR",
         help="format string for --captioner template, e.g. "
              "'{shot}, {pose}, {light}, {tone}'")

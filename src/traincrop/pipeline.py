@@ -23,7 +23,7 @@ from typing import Any, Callable, Iterable, Iterator, Sequence
 
 from PIL import Image
 
-from . import captioners, detectors, images
+from . import captioners, detectors, images, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
@@ -146,6 +146,15 @@ class Pipeline:
             self._caption_only_run()
             self.stats.seconds = time.monotonic() - started
             return self.stats
+
+        if cfg.upscale and cfg.min_ratio < 1.0 / superres.FACTOR:
+            self._emit(
+                "warn",
+                f"--min-ratio {cfg.min_ratio:g} can call for more than "
+                f"{superres.FACTOR}x enlargement, beyond what the bundled "
+                "AI upscaling model does in one pass -- the remainder "
+                "of an oversized enlargement falls back to a plain resize",
+            )
 
         paths = list(images.iter_images(
             cfg.input,
@@ -318,7 +327,8 @@ class Pipeline:
                     continue
 
                 crop = images.extract(
-                    image, plan, fill=cfg.fill, fill_color=cfg.fill_color
+                    image, plan, fill=cfg.fill, fill_color=cfg.fill_color,
+                    upscale=cfg.upscale,
                 )
 
                 inner_fraction = max(0.5, min(1.0, 1.0 / (1.0 + 2.0 * cfg.padding)))
