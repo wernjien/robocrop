@@ -27,6 +27,10 @@ dataset/
 # Crop whole bodies
 ./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person
 
+# Crop whole bodies for a body/outfit/style LoRA that does not learn the face
+./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
+    --mask-faces --training-config
+
 # Crop dogs
 ./traincrop -i ~/Pictures/dogs -o ./dataset --detector yolox --detector-opt classes=dog
 
@@ -326,6 +330,50 @@ To detect objects not in COCO (80 classes), you can add your own detector. Drop 
 `Region` objects, and add one line to `_BACKENDS` in that package's `__init__.py`.
 Nothing else changes.
 
+## Body LoRAs without the face
+
+For a body, outfit or style LoRA meant to be used with *other* faces, the
+subject's face in the training images is a problem: the LoRA learns it along
+with everything else, and pulls every generation towards that person.
+
+Covering the face (a blur, a white box) makes it worse — the LoRA learns
+that this subject has a blob for a face. `--mask-faces` leaves the face alone
+in the image and writes a mask beside each crop instead:
+
+```bash
+./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
+    --mask-faces --training-config
+```
+
+```
+dataset/0001.png             the crop, untouched
+dataset/0001-masklabel.png   white = learn, soft black oval over each face
+```
+
+With masked training, the trainer scores its output only on the white area,
+so the face is seen as context but never learned. The masks follow
+OneTrainer's `-masklabel.png` naming, and `--training-config` switches
+`masked_training` on with `unmasked_probability` and `unmasked_weight` at 0
+(OneTrainer's defaults would still train on the whole image one step in
+ten). Other trainers that take loss masks work too, pointed at these files.
+
+- **Every face in a crop is masked**, not just the subject's — a bystander's
+  face is identity the LoRA should not learn either.
+- **`--mask-margin`** (default 35) is the percent of the face box added to
+  each side of the oval, so hair, ears and jaw are covered as well.
+- **`--mask-missing`** decides what happens when no face is found in a crop
+  (back of the head, strong profile, face out of frame): `skip` (default)
+  drops it, since a missed face would be learned; `keep` uses it with nothing
+  masked, and the summary counts these so you can check them by eye.
+- **`--mask-min-score`** (default 0.5) is the face confidence needed to mask
+  it — deliberately lower than `--min-score`, because a missed face costs
+  more than masking a patch of background by mistake.
+
+It needs a body or object detector; with a face detector every crop would
+be all mask, so that combination is refused. Masking cuts identity leakage
+sharply but not to zero — skin tone and hair colour are still visible outside
+the oval — so keep the trigger word and captions about the body and outfit.
+
 ## Resuming
 
 Interrupt a long run and pick it up where it stopped:
@@ -346,13 +394,13 @@ refused rather than silently mixed, unless you pass `--resume` or
 ```
 
 Writes `training_config.json` into the output directory: a copy of
-`traincrop.onetrainer.example.json` (bundled at the repo root) with two
+`traincrop.onetrainer.example.json` (bundled at the repo root) with a few
 fields filled in from what this run actually produced. Everything else in
 that file is yours to hand-edit for your own base model, LoRA rank,
 optimizer, and so on — there is no separate override flag, the bundled file
 *is* the template.
 
-The two fields that get overwritten:
+The fields that get overwritten:
 
 - **`resolution`** — set to the smallest output tier that appears anywhere in
   the run (e.g. `"512"` if the dataset has 512 and 768px crops but no 1024).
@@ -364,6 +412,10 @@ The two fields that get overwritten:
   whatever `batch_size` is already in the template), clamped to between 10
   and 300 so a very small or very large dataset doesn't produce a nonsensical
   epoch count.
+- **`masked_training`**, **`unmasked_probability`**, **`unmasked_weight`** —
+  only when the dataset has face masks (see
+  [Body LoRAs without the face](#body-loras-without-the-face)): masked
+  training on, and no weight or steps given to the masked-out faces.
 
 If the dataset has zero crops, or the bundled template is missing/invalid,
 nothing is written and a warning is printed — the rest of the run is

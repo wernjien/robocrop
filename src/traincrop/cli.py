@@ -42,6 +42,11 @@ examples:
   # crop whole bodies
   traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person
 
+  # a body/outfit LoRA that does not learn the face: bodies cropped, faces
+  # masked out of training (OneTrainer masked training switched on)
+  traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
+      --mask-faces --training-config
+
   # see what would happen, without writing anything or loading a model
   traincrop -i ./photos -o ./dataset --dry-run
 
@@ -66,6 +71,14 @@ examples:
   # loosen or disable the blur check
   traincrop -i ./photos -o ./dataset --min-sharpness 5
   traincrop -i ./photos -o ./dataset --min-sharpness 0
+
+face masks:
+  --mask-faces runs a face detector over each crop and writes NAME-masklabel.png
+  beside it: white where the trainer should learn, a soft black oval over every
+  face. The face is left untouched in the image itself -- covering it would
+  teach the LoRA faceless people -- and masked training simply scores nothing
+  inside the oval, so the face's identity is not learned. OneTrainer reads
+  these masks with masked training on, which --training-config then enables.
 
 sizing rule:
   A crop is produced at the largest configured size whose minimum is met by the
@@ -206,6 +219,22 @@ def build_parser() -> argparse.ArgumentParser:
              "plain resize; needs opencv-contrib-python. Crops that already "
              "meet or exceed their tier are unaffected")
 
+    mask = parser.add_argument_group("face masking")
+    add(mask, "--mask-faces", action="store_true",
+        help="write a NAME-masklabel.png beside each crop that masks every "
+             "face out of training, for a body/outfit/style LoRA that should "
+             "not learn the face; needs a body detector such as yolox")
+    add(mask, "--mask-margin", type=float, metavar="PCT",
+        help="percent of the face box added to every side of its mask, to "
+             f"cover hair, ears and jaw (default: {_default_pct('mask_margin')})")
+    add(mask, "--mask-missing", choices=("skip", "keep"),
+        help="crops where no face was found (back of the head, strong "
+             "profile, face out of frame): skip them, or keep them with "
+             f"nothing masked (default: {_default('mask_missing')})")
+    add(mask, "--mask-min-score", type=float, metavar="F",
+        help="face confidence needed to mask it; lower misses fewer faces "
+             f"(default: {_default('mask_min_score')})")
+
     out = parser.add_argument_group("output files")
     add(out, "--prefix", metavar="STR", help="filename prefix before the number")
     add(out, "--start-index", type=int, metavar="N",
@@ -323,6 +352,10 @@ def _coerce(value: str) -> Any:
     return value
 
 
+#: Settings typed as percentages but held in Config as fractions.
+_PERCENT_FIELDS = ("padding", "mask_margin")
+
+
 def build_config(argv: Sequence[str] | None = None) -> Config:
     parser = build_parser()
     args = vars(parser.parse_args(argv))
@@ -359,14 +392,17 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
         args["caption_drop"] = tuple(args["caption_drop"])
     if "detector_opt" in args:
         args["detector_opts"] = _parse_detector_opts(args.pop("detector_opt"))
-    if "padding" in args:
-        args["padding"] = args["padding"] / 100.0   # the flag is a percentage
+    for pct in _PERCENT_FIELDS:
+        if pct in args:
+            args[pct] = args[pct] / 100.0   # the flag is a percentage
     settings.update(args)
 
-    # A TOML file may also give padding as a percentage; normalise it the same
+    # A TOML file gives these as percentages too; normalise them the same
     # way, but only when the flag did not already do so.
-    if config_path is not None and "padding" in settings and "padding" not in args:
-        settings["padding"] = float(settings["padding"]) / 100.0
+    if config_path is not None:
+        for pct in _PERCENT_FIELDS:
+            if pct in settings and pct not in args:
+                settings[pct] = float(settings[pct]) / 100.0
 
     known = {f.name for f in fields(Config)}
     config = Config(**{k: v for k, v in settings.items() if k in known})
@@ -460,6 +496,14 @@ def _summarise(config: Config, stats, emit) -> None:
                      f"{config.min_sharpness:.1f} sharpness")
     if stats.skipped_multi:
         lines.append(f"skipped          {stats.skipped_multi} multi-face image(s)")
+    if config.mask_faces:
+        lines.append(f"faces masked     in {stats.masked} crop(s)")
+    if stats.skipped_no_face:
+        lines.append(f"skipped          {stats.skipped_no_face} crop(s) with no face "
+                     f"found to mask")
+    if stats.unmasked_kept:
+        lines.append(f"kept unmasked    {stats.unmasked_kept} crop(s) with no face found "
+                     f"-- check these for a visible face")
     if stats.skipped_existing:
         lines.append(f"skipped          {stats.skipped_existing} already done (resume)")
     if stats.errors:

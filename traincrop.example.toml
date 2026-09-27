@@ -61,6 +61,20 @@ fill      = "blur"
 # their tier are unaffected either way.
 # upscale = true
 
+# ---- face masking -------------------------------------------------------
+# For a body/outfit LoRA that should not learn the face: write a
+# NAME-masklabel.png beside each crop that masks every face out of training.
+# Needs a body detector (detector = "yolox" above).
+# mask_faces     = true
+
+# percent of the face box added to every side of its mask
+# mask_margin    = 35
+
+# a crop where no face was found: skip | keep
+# mask_missing   = "skip"
+
+# mask_min_score = 0.5
+
 # ---- output -------------------------------------------------------------
 # png | jpg | webp
 format  = "png"

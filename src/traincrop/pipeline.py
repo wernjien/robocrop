@@ -23,7 +23,7 @@ from typing import Any, Callable, Iterable, Iterator, Sequence
 
 from PIL import Image
 
-from . import captioners, detectors, images, superres
+from . import captioners, detectors, images, masks, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
@@ -61,6 +61,9 @@ class CropRecord:
     """Detector landmarks in source pixels, when the backend supplies them.
     Carried through so the caption pass can read head pose, including on a
     resumed run where the detector is never re-run."""
+    mask_file: str | None = None
+    """The ``-masklabel.png`` written with --mask-faces, else None."""
+    masked_faces: int = 0
     caption: str = ""
 
 
@@ -84,9 +87,24 @@ class Stats:
     skipped_blurry: int = 0
     skipped_multi: int = 0
     skipped_existing: int = 0
+    skipped_no_face: int = 0
+    masked: int = 0
+    unmasked_kept: int = 0
     errors: int = 0
     by_tier: dict[int, int] = field(default_factory=dict)
     seconds: float = 0.0
+
+
+@dataclass
+class _Crop:
+    """One crop a worker produced, ready to be numbered and saved."""
+
+    region: Region
+    plan: Any
+    image: Image.Image
+    sharpness: float
+    mask: Image.Image | None = None
+    masked_faces: int = 0
 
 
 @dataclass
@@ -94,7 +112,7 @@ class _ImageResult:
     """What one worker produces for one source image."""
 
     source: Path
-    crops: list[tuple[Region, Any, Image.Image, float]] = field(default_factory=list)
+    crops: list[_Crop] = field(default_factory=list)
     skips: list[SkipRecord] = field(default_factory=list)
     detections: int = 0
     offset_y: float = 0.0
@@ -131,6 +149,16 @@ class Pipeline:
                 **self.cfg.detector_opts,
             )
             self._local.detector = existing
+        return existing
+
+    def _face_detector(self):
+        """The per-thread YuNet that finds faces to mask inside each crop."""
+        existing = getattr(self._local, "face_detector", None)
+        if existing is None:
+            existing = detectors.create(
+                "yunet", min_score=self.cfg.mask_min_score, quiet=self.cfg.quiet
+            )
+            self._local.face_detector = existing
         return existing
 
     # -- entry point ------------------------------------------------------
@@ -186,7 +214,7 @@ class Pipeline:
         if not cfg.dry_run:
             self._write_summary()
             if cfg.training_config:
-                self._write_training_config()
+                self._write_training_config(masked=cfg.mask_faces)
 
         self.stats.seconds = time.monotonic() - started
         return self.stats
@@ -214,7 +242,8 @@ class Pipeline:
                     self._tally_skip(skip.reason)
 
                 total = len(result.crops)
-                for face_index, (region, plan, crop, sharpness) in enumerate(result.crops):
+                for face_index, item in enumerate(result.crops):
+                    region, plan, crop = item.region, item.plan, item.image
                     record = CropRecord(
                         index=next_index,
                         source=str(result.source),
@@ -229,7 +258,7 @@ class Pipeline:
                         base_side=round(plan.base_side, 1),
                         fitted_side=round(plan.fitted_side, 1),
                         scale=round(plan.scale, 4),
-                        sharpness=sharpness,
+                        sharpness=item.sharpness,
                         padding=cfg.padding,
                         offset_y=result.offset_y,
                         crop=[round(v, 1) for v in (plan.rect.x, plan.rect.y, plan.rect.w, plan.rect.h)],
@@ -241,15 +270,26 @@ class Pipeline:
                             name: [round(x, 1), round(y, 1)]
                             for name, (x, y) in region.landmarks.items()
                         },
+                        mask_file=(
+                            masks.mask_name(self._image_name(next_index, plan.tier))
+                            if item.mask is not None else None
+                        ),
+                        masked_faces=item.masked_faces,
                     )
 
                     if not cfg.dry_run:
                         self._save(crop, record)
+                        if item.mask is not None:
+                            self._save_mask(item.mask, record)
                         manifest.write(json.dumps(asdict(record)) + "\n")
                         manifest.flush()
 
                     self.records.append(record)
                     self.stats.written += 1
+                    if item.masked_faces:
+                        self.stats.masked += 1
+                    elif item.mask is not None:
+                        self.stats.unmasked_kept += 1
                     self.stats.by_tier[plan.tier] = self.stats.by_tier.get(plan.tier, 0) + 1
                     next_index += 1
 
@@ -261,6 +301,8 @@ class Pipeline:
                             f"base={plan.base_side:.0f}px tier={plan.tier}",
                         )
                     crop.close()
+                    if item.mask is not None:
+                        item.mask.close()
 
                 if not cfg.quiet and not cfg.verbose and self.stats.scanned % 25 == 0:
                     self._emit(
@@ -343,7 +385,26 @@ class Pipeline:
                     crop.close()
                     continue
 
-                result.crops.append((region, plan, crop, sharpness))
+                item = _Crop(region, plan, crop, sharpness)
+                if cfg.mask_faces:
+                    faces = self._face_detector().detect(images.to_bgr(crop))
+                    if not faces and cfg.mask_missing == "skip":
+                        result.skips.append(SkipRecord(
+                            str(path), "no_face",
+                            "no face found to mask (--mask-missing keep to use it anyway)",
+                            sharpness=sharpness,
+                        ))
+                        crop.close()
+                        continue
+                    # A kept crop with no face still gets a mask, all white:
+                    # with masked training on, a missing mask file does not
+                    # mean "learn everything" in every trainer.
+                    item.mask = masks.build_mask(
+                        plan.tier, [f.rect for f in faces], cfg.mask_margin
+                    )
+                    item.masked_faces = len(faces)
+
+                result.crops.append(item)
         except Exception as exc:  # noqa: BLE001
             result.error = f"{type(exc).__name__}: {exc}"
         finally:
@@ -506,7 +567,9 @@ class Pipeline:
             self.stats.by_tier[record.tier] = self.stats.by_tier.get(record.tier, 0) + 1
 
         if not cfg.dry_run and records:
-            self._write_training_config()
+            self._write_training_config(
+                masked=cfg.mask_faces or any(r.mask_file for r in records)
+            )
 
     def _load_manifest_records(self) -> list[CropRecord]:
         cfg = self.cfg
@@ -560,6 +623,15 @@ class Pipeline:
             crop.save(target, "WEBP", quality=cfg.quality, method=6)
         else:
             crop.save(target, "PNG", compress_level=6)
+
+    def _save_mask(self, mask: Image.Image, record: CropRecord) -> None:
+        target = self.cfg.output / record.mask_file
+        if target.exists() and not self.cfg.overwrite:
+            raise FileExistsError(
+                f"{target} already exists; use --overwrite, --resume, "
+                f"or an empty output directory"
+            )
+        mask.save(target, "PNG", compress_level=6)
 
     # -- manifest ---------------------------------------------------------
     def _resume_state(self) -> tuple[set[str], int]:
@@ -627,7 +699,7 @@ class Pipeline:
             json.dumps(summary, indent=2) + "\n", encoding="utf-8"
         )
 
-    def _write_training_config(self) -> None:
+    def _write_training_config(self, *, masked: bool = False) -> None:
         """Fill a copy of the bundled OneTrainer template from this run's stats.
 
         Only ``resolution`` and ``epochs`` are dataset-derived; everything else
@@ -637,6 +709,11 @@ class Pipeline:
         fixed total step count (4000) rather than a fixed epoch count, since
         epochs * (images / batch_size) = steps; the clamp guards against
         absurd epoch counts at either end of the dataset-size range.
+
+        The one exception: with face masks, masked training is switched on
+        and the masked-out faces get no weight and no whole-image steps.
+        OneTrainer's defaults still train on the unmasked image one step in
+        ten, which would teach the face after all.
         """
         if not self.stats.by_tier:
             return
@@ -654,13 +731,19 @@ class Pipeline:
         epochs = target_steps * batch_size / self.stats.written
         template["epochs"] = int(round(min(300, max(10, epochs))))
 
+        if masked:
+            template["masked_training"] = True
+            template["unmasked_probability"] = 0.0
+            template["unmasked_weight"] = 0.0
+
         (self.cfg.output / TRAINING_CONFIG_NAME).write_text(
             json.dumps(template, indent=2) + "\n", encoding="utf-8"
         )
         self._emit(
             "info",
             f"wrote {TRAINING_CONFIG_NAME} (resolution={smallest_tier}, "
-            f"epochs={template['epochs']})",
+            f"epochs={template['epochs']}"
+            + (", masked training" if masked else "") + ")",
         )
 
     # -- misc -------------------------------------------------------------
@@ -673,12 +756,15 @@ class Pipeline:
             self.stats.skipped_blurry += 1
         elif reason == "multi":
             self.stats.skipped_multi += 1
+        elif reason == "no_face":
+            self.stats.skipped_no_face += 1
 
     def _close_detectors(self) -> None:
-        detector = getattr(self._local, "detector", None)
-        if detector is not None:
-            detector.close()
-            self._local.detector = None
+        for attr in ("detector", "face_detector"):
+            detector = getattr(self._local, attr, None)
+            if detector is not None:
+                detector.close()
+                setattr(self._local, attr, None)
 
 
 def _default_workers() -> int:

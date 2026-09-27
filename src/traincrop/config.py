@@ -44,6 +44,17 @@ class Config:
     upscaling instead of a plain resize. A crop that already meets or
     exceeds the tier is always just resized down; this never applies then."""
 
+    # -- face masking ----------------------------------------------------
+    mask_faces: bool = False
+    """Write a ``-masklabel.png`` beside each crop that blacks out every face
+    in it, so masked training learns body, outfit and style but not identity.
+    Needs a body/object detector; a face detector's crops would be all mask."""
+    mask_margin: float = 0.35   # fraction of the face box added to EACH side
+    mask_missing: str = "skip"  # skip | keep -- a crop where no face was found
+    mask_min_score: float = 0.5
+    """Lower than min_score on purpose: a missed face is learned, while a
+    false positive only costs a patch of background."""
+
     # -- output ----------------------------------------------------------
     prefix: str = ""
     start_index: int = 1
@@ -112,6 +123,17 @@ class Config:
             problems.append("--edge must be shift, extend or skip")
         if self.fill not in ("edge", "blur", "reflect", "color"):
             problems.append("--fill must be edge, blur, reflect or color")
+        if self.mask_margin < 0:
+            problems.append("--mask-margin cannot be negative")
+        if self.mask_missing not in ("skip", "keep"):
+            problems.append("--mask-missing must be skip or keep")
+        if not 0 <= self.mask_min_score <= 1:
+            problems.append("--mask-min-score must be in [0, 1]")
+        if self.mask_faces and self.detector in ("yunet", "haar"):
+            problems.append(
+                "--mask-faces needs a body or object detector (e.g. --detector "
+                "yolox); with a face detector every crop would be all mask"
+            )
         if self.overwrite and self.resume:
             problems.append("--overwrite and --resume are mutually exclusive")
         if self.caption_only and self.training_config_only:
