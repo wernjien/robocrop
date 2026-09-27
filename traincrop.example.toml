@@ -62,7 +62,7 @@ fill      = "blur"
 # upscale = true
 
 # ---- masks --------------------------------------------------------------
-# Both write NAME-masklabel.png beside each crop, for masked training.
+# All write NAME-masklabel.png beside each crop, for masked training.
 #
 # For a body/outfit LoRA that should not learn the face: mask every face
 # out of training. Needs a body detector (detector = "yolox" above).
@@ -82,6 +82,13 @@ fill      = "blur"
 
 # loss weight of the background, 0-1; 0 ignores it completely
 # background_weight = 0.1
+
+# Weight clothing and accessories down, so the LoRA learns the person
+# rather than their outfits. Combines with the masks above.
+# mask_clothing   = true
+
+# loss weight of clothing, 0-1
+# clothing_weight = 0.0
 
 # ---- output -------------------------------------------------------------
 # png | jpg | webp

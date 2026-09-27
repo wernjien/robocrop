@@ -39,6 +39,9 @@ dataset/
 ./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
     --mask-faces --mask-background --training-config
 
+# Learn the person, not the outfits they were photographed in
+./traincrop -i ~/Pictures/portraits -o ./dataset --mask-clothing --training-config
+
 # Crop dogs
 ./traincrop -i ~/Pictures/dogs -o ./dataset --detector yolox --detector-opt classes=dog
 
@@ -97,7 +100,7 @@ Nothing is installed system-wide — everything is local to this directory.
 | What | Size | Location |
 |---|---|---|
 | `.venv/` (Python packages) | 1.1 GB | This directory |
-| `~/.cache/traincrop/` (detector and mask weights) | ~40–65 MB | Your home directory |
+| `~/.cache/traincrop/` (detector and mask weights) | ~40–175 MB | Your home directory |
 | `~/.cache/huggingface/` (caption model) | 4.5–7.5 GB | Your home directory |
 | Output dataset | ~2–5 MB per 1000 crops | `--output` directory |
 
@@ -421,6 +424,44 @@ It works with face crops as well as body crops — to learn a person without
 the room they were photographed in. It segments people, so it is refused
 with a YOLOX class list that doesn't include `person`.
 
+## Masking clothing
+
+A character trained on a few shoots learns the outfits along with the
+person: prompt something else to wear and the old outfit bleeds through.
+`--mask-clothing` weights clothing and accessories down in the same
+`-masklabel.png`, so the model learns the face, hair and body but not what
+they had on:
+
+```bash
+./traincrop -i ./photos -o ./dataset --mask-clothing --training-config
+```
+
+A clothes parser ([SegFormer-B2 fine-tuned on ATR](https://huggingface.co/mattmdjaga/segformer_b2_clothes),
+110 MB, downloaded on first use) finds hats, sunglasses, tops, skirts,
+trousers, dresses, belts, shoes, bags and scarves in each crop, and they drop
+to `--clothing-weight` (default 0). Hair, face and skin are left alone.
+
+- **Every outfit in a crop is masked**, not just the subject's, as with faces.
+- **`--clothing-weight`** is 0 by default, since any weight teaches the
+  outfit a little; raise it towards 0.1 if the model starts drawing clothing
+  badly.
+- **The mask reaches slightly past each garment's edge**, so the outfit's
+  outline is not learned either; a sliver of the skin beside it goes too.
+- **`masked_clothing`** in `manifest.jsonl` is the fraction of each crop
+  masked as clothing; the summary counts the crops where any was found.
+- **It combines with the other masks**, each pixel taking the lowest weight.
+  With `--mask-background` that is person 1, clothing 0, background 0.1 —
+  a character without their wardrobe or their rooms:
+
+  ```bash
+  ./traincrop -i ./photos -o ./dataset --mask-clothing --mask-background --training-config
+  ```
+
+  With `--mask-faces` as well, little but bare skin is left to learn.
+
+Like `--mask-background` it parses people, so it is refused with a YOLOX
+class list that doesn't include `person`.
+
 ## Resuming
 
 Interrupt a long run and pick it up where it stopped:
@@ -476,8 +517,9 @@ The fields that get overwritten:
   epoch count.
 - **`masked_training`**, **`unmasked_probability`**, **`unmasked_weight`** —
   only when the dataset has masks (see
-  [Training without the face](#training-without-the-face) and
-  [Masking the background](#masking-the-background)): masked training on,
+  [Training without the face](#training-without-the-face),
+  [Masking the background](#masking-the-background) and
+  [Masking clothing](#masking-clothing)): masked training on,
   with no whole-image steps and no weight floor, so every pixel is weighted
   exactly as its mask says. OneTrainer's `unmasked_weight` is a floor under
   the mask — the default 0.1 would lift the masked-out faces to 0.1.
@@ -523,6 +565,7 @@ on the original run. Like `--caption-only`, it only reads `--output`.
 -v, --verbose           log every crop
     --mask-faces        mask every face out of training (learn body/outfit, not identity)
     --mask-background   weight the background down, keep the person
+    --mask-clothing     mask clothing and accessories (learn the person, not the outfit)
     --training-config       write a filled-in OneTrainer config alongside the crops
     --training-config-only  write it for an existing --output dataset, nothing else
 ```
@@ -566,6 +609,7 @@ Command-line flags always win over the config file, so you can tune a single set
 - **Detector weights** (YuNet: 230 KB, YOLOX: 35 MB) — downloaded once, cached in `~/.cache/traincrop/`
 - **Upscale model** (FSRCNN: ~40 KB, only with `--upscale`) — downloaded once, cached alongside the detector weights
 - **Matting model** (MODNet: 26 MB, only with `--mask-background`) — downloaded once, cached alongside the detector weights
+- **Clothes parser** (SegFormer-B2: 110 MB, only with `--mask-clothing`) — downloaded once, cached alongside the detector weights
 - **Caption model** (SmolVLM by default: 4.5 GB) — downloaded once, cached in Hugging Face's cache (`~/.cache/huggingface/`), fully offline after first download
 - Every model file is checked against a pinned SHA-256 before it is cached; an interrupted or corrupted download is discarded and fetched again on the next run
 

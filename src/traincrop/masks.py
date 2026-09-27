@@ -83,12 +83,16 @@ def build_mask(
     *,
     person: np.ndarray | None = None,
     background: float = 0.1,
+    clothing: np.ndarray | None = None,
+    clothing_weight: float = 0.0,
 ) -> Image.Image:
     """A ``size`` x ``size`` greyscale mask: white where the crop is learned.
 
     With ``person`` (a ``size`` x ``size`` matte in [0, 1]), the background
     drops to the ``background`` weight and the person stays white, blending
     along the matte's soft edge. Without it, the whole crop starts white.
+    With ``clothing`` (a matte of the same shape), clothing drops to
+    ``clothing_weight`` the same way.
 
     Each face then becomes a black ellipse around its box, grown by
     ``margin`` of the box side on every side so hair, ears and jaw are
@@ -97,12 +101,15 @@ def build_mask(
     eats into the surroundings rather than the other way round.
     """
     faces_mask = _face_mask(size, faces, margin)
-    if person is None:
+    if person is None and clothing is None:
         return faces_mask
 
-    weights = background + (1.0 - background) * np.clip(person, 0.0, 1.0)
-    combined = np.minimum(weights, np.asarray(faces_mask, dtype=np.float32) / 255.0)
-    return Image.fromarray(np.round(combined * 255.0).astype(np.uint8))
+    weights = np.asarray(faces_mask, dtype=np.float32) / 255.0
+    if person is not None:
+        weights = np.minimum(weights, background + (1.0 - background) * np.clip(person, 0.0, 1.0))
+    if clothing is not None:
+        weights = np.minimum(weights, 1.0 - (1.0 - clothing_weight) * np.clip(clothing, 0.0, 1.0))
+    return Image.fromarray(np.round(weights * 255.0).astype(np.uint8))
 
 
 def _face_mask(size: int, faces: Sequence[Rect], margin: float) -> Image.Image:

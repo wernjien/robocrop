@@ -61,6 +61,10 @@ class Config:
     background_weight: float = 0.1
     """Loss weight of the background, 0-1. Not 0 by default: a little weight
     keeps the LoRA from drifting on the background it is never scored on."""
+    mask_clothing: bool = False
+    """Weight clothing down in the same ``-masklabel.png``: learn the person, not the outfit."""
+    clothing_weight: float = 0.0
+    """Loss weight of clothing, 0-1."""
 
     # -- output ----------------------------------------------------------
     prefix: str = ""
@@ -151,9 +155,16 @@ class Config:
             problems.append("--mask-min-score must be in [0, 1]")
         if not 0 <= self.background_weight <= 1:
             problems.append("--background-weight must be in [0, 1]")
+        if not 0 <= self.clothing_weight <= 1:
+            problems.append("--clothing-weight must be in [0, 1]")
         if self.mask_background and not self._detects_people():
             problems.append(
                 "--mask-background segments people, so it needs a face "
+                "detector or --detector yolox with classes including person"
+            )
+        if self.mask_clothing and not self._detects_people():
+            problems.append(
+                "--mask-clothing parses people, so it needs a face "
                 "detector or --detector yolox with classes including person"
             )
         if self.mask_faces and self.detector in ("yunet", "haar"):
@@ -181,7 +192,7 @@ class Config:
 
     @property
     def writes_masks(self) -> bool:
-        return self.mask_faces or self.mask_background
+        return self.mask_faces or self.mask_background or self.mask_clothing
 
     @property
     def extension(self) -> str:

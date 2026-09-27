@@ -50,6 +50,9 @@ examples:
   # learn the subject, not the backgrounds the photos were taken against
   traincrop -i ./photos -o ./dataset --mask-background --training-config
 
+  # a character LoRA that does not learn the outfits it was photographed in
+  traincrop -i ./photos -o ./dataset --mask-clothing --training-config
+
   # see what would happen, without writing anything or loading a model
   traincrop -i ./photos -o ./dataset --dry-run
 
@@ -76,13 +79,15 @@ examples:
   traincrop -i ./photos -o ./dataset --min-sharpness 0
 
 masks:
-  --mask-faces and --mask-background write NAME-masklabel.png beside each crop:
-  a greyscale loss weight per pixel, white where the trainer should learn.
-  --mask-faces puts a soft black oval over every face; --mask-background drops
-  everything but the person (found with a person matting model) to
-  --background-weight. Either or both. The crop itself is left untouched --
-  covering the face or the background would teach the LoRA the cover -- and
-  masked training scores each pixel only as much as its mask allows.
+  --mask-faces, --mask-background and --mask-clothing write NAME-masklabel.png
+  beside each crop: a greyscale loss weight per pixel, white where the trainer
+  should learn. --mask-faces puts a soft black oval over every face;
+  --mask-background drops everything but the person (found with a person
+  matting model) to --background-weight; --mask-clothing drops clothing and
+  accessories (found with a clothes parser) to --clothing-weight. Any
+  combination. The crop itself is left untouched -- covering the face or the
+  background would teach the LoRA the cover -- and masked training scores
+  each pixel only as much as its mask allows.
   OneTrainer reads these masks with masked training on, which
   --training-config then enables.
 
@@ -247,6 +252,13 @@ def build_parser() -> argparse.ArgumentParser:
     add(mask, "--background-weight", type=float, metavar="F",
         help="loss weight of the background, 0-1; a little keeps the LoRA "
              f"from drifting there (default: {_default('background_weight')})")
+    add(mask, "--mask-clothing", action="store_true",
+        help="write a NAME-masklabel.png beside each crop that weights "
+             "clothing and accessories down, so the LoRA learns the person "
+             "rather than their outfits; combines with the other masks")
+    add(mask, "--clothing-weight", type=float, metavar="F",
+        help="loss weight of clothing, 0-1; raise it a little if the LoRA "
+             f"drifts on clothing (default: {_default('clothing_weight')})")
 
     out = parser.add_argument_group("output files")
     add(out, "--prefix", metavar="STR", help="filename prefix before the number")
@@ -525,6 +537,8 @@ def _summarise(config: Config, stats, emit) -> None:
     if stats.background_box:
         lines.append(f"masked by box    {stats.background_box} crop(s) where no person "
                      f"outline was found")
+    if config.mask_clothing:
+        lines.append(f"clothing masked  in {stats.clothing_masked} crop(s)")
     if stats.unmasked_kept:
         lines.append(f"kept unmasked    {stats.unmasked_kept} crop(s) with no face found "
                      f"-- check these for a visible face")

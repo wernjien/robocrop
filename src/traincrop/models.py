@@ -26,6 +26,7 @@ _OPENCV_DATA = "https://raw.githubusercontent.com/opencv/opencv/4.x/data"
 _FSRCNN = "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models"
 # Pinned to a commit rather than main, so the file cannot change under us.
 _MODNET = "https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx"
+_SEGFORMER_CLOTHES = "https://huggingface.co/mattmdjaga/segformer_b2_clothes/resolve/584abc1e1d260e23c0fc627c5217a09b2b461046/onnx"
 
 
 class Model(NamedTuple):
@@ -65,6 +66,11 @@ REGISTRY: dict[str, Model] = {
         f"{_MODNET}/model.onnx",
         "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9",
         "modnet_photographic_portrait_matting.onnx",
+    ),
+    "segformer_clothes": Model(
+        f"{_SEGFORMER_CLOTHES}/model.onnx",
+        "a93a8dac171b5c1fcc53632a8bfc180bfd9759ea69a3e207451bb07f76add54f",
+        "segformer_b2_clothes.onnx",
     ),
 }
 

@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterable, Iterator, Sequence
 
 from PIL import Image
 
-from . import captioners, detectors, images, masks, segment, superres
+from . import captioners, clothing, detectors, images, masks, segment, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
@@ -64,12 +64,13 @@ class CropRecord:
     Carried through so the caption pass can read head pose, including on a
     resumed run where the detector is never re-run."""
     mask_file: str | None = None
-    """The ``-masklabel.png`` written with --mask-faces or --mask-background,
-    else None."""
+    """The ``-masklabel.png`` written with a --mask-* flag, else None."""
     masked_faces: int = 0
     background_mask: str | None = None
     """How the background was masked: ``outline`` from the person matte,
     ``box`` from the detection box when the matte found no person, or None."""
+    masked_clothing: float = 0.0
+    """Fraction of the crop masked as clothing."""
     caption: str = ""
 
 
@@ -98,6 +99,7 @@ class Stats:
     unmasked_kept: int = 0
     background_masked: int = 0
     background_box: int = 0
+    clothing_masked: int = 0
     errors: int = 0
     by_tier: dict[int, int] = field(default_factory=dict)
     seconds: float = 0.0
@@ -114,6 +116,7 @@ class _Crop:
     mask: Image.Image | None = None
     masked_faces: int = 0
     background: str | None = None
+    masked_clothing: float = 0.0
 
     def close(self) -> None:
         self.image.close()
@@ -183,6 +186,14 @@ class Pipeline:
         if existing is None:
             existing = segment.create(quiet=self.cfg.quiet)
             self._local.segmenter = existing
+        return existing
+
+    def _clothing_segmenter(self):
+        """The per-thread clothes parser for clothing masks."""
+        existing = getattr(self._local, "clothing", None)
+        if existing is None:
+            existing = clothing.create(quiet=self.cfg.quiet)
+            self._local.clothing = existing
         return existing
 
     # -- entry point ------------------------------------------------------
@@ -309,6 +320,7 @@ class Pipeline:
                         ),
                         masked_faces=item.masked_faces,
                         background_mask=item.background,
+                        masked_clothing=item.masked_clothing,
                     )
 
                     if not cfg.dry_run:
@@ -328,6 +340,8 @@ class Pipeline:
                         self.stats.background_masked += 1
                     if item.background == "box":
                         self.stats.background_box += 1
+                    if item.masked_clothing:
+                        self.stats.clothing_masked += 1
                     self.stats.by_tier[plan.tier] = self.stats.by_tier.get(plan.tier, 0) + 1
                     next_index += 1
 
@@ -363,6 +377,8 @@ class Pipeline:
             self._face_detector()
         if cfg.mask_background:
             self._segmenter()
+        if cfg.mask_clothing:
+            self._clothing_segmenter()
 
         try:
             image = images.load_image(path)
@@ -471,12 +487,18 @@ class Pipeline:
             if person is None:
                 person, item.background = masks.box_person(plan.tier, box), "box"
 
+        garments = None
+        if cfg.mask_clothing:
+            garments = self._clothing_segmenter().matte(bgr)
+            item.masked_clothing = round(float((garments >= 0.5).mean()), 3)
+
         # A kept crop with no face still gets a mask, all white if nothing
         # else is masked: with masked training on, a missing mask file does
         # not mean "learn everything" in every trainer.
         item.mask = masks.build_mask(
             plan.tier, [f.rect for f in faces], cfg.mask_margin,
             person=person, background=cfg.background_weight,
+            clothing=garments, clothing_weight=cfg.clothing_weight,
         )
         item.masked_faces = len(faces)
         return True
@@ -920,7 +942,7 @@ class Pipeline:
             self.stats.skipped_no_face += 1
 
     def _close_detectors(self) -> None:
-        for attr in ("detector", "face_detector", "segmenter"):
+        for attr in ("detector", "face_detector", "segmenter", "clothing"):
             detector = getattr(self._local, attr, None)
             if detector is not None:
                 detector.close()
