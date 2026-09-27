@@ -17,6 +17,7 @@ from pathlib import Path
 _OPENCV_ZOO = "https://github.com/opencv/opencv_zoo/raw/main/models"
 _OPENCV_DATA = "https://raw.githubusercontent.com/opencv/opencv/4.x/data"
 _FSRCNN = "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models"
+_MODNET = "https://huggingface.co/Xenova/modnet/resolve/main/onnx"
 
 #: Logical name -> (url, minimum plausible size in bytes).
 #: The size acts as a cheap integrity check: an HTML error page or a truncated
@@ -39,6 +40,13 @@ REGISTRY: dict[str, tuple[str, int]] = {
         20_000_000,
     ),
     "fsrcnn_x2": (f"{_FSRCNN}/FSRCNN_x2.pb", 30_000),
+    "modnet": (f"{_MODNET}/model.onnx", 20_000_000),
+}
+
+#: Cache filenames for models whose URL ends in something too generic to
+#: share a cache directory with (Hugging Face exports are all model.onnx).
+_CACHE_NAMES: dict[str, str] = {
+    "modnet": "modnet_photographic_portrait_matting.onnx",
 }
 
 
@@ -61,12 +69,12 @@ def ensure(name: str, *, quiet: bool = False) -> Path:
     except KeyError:
         raise ModelUnavailable(f"unknown model {name!r}") from None
 
-    target = cache_dir() / Path(url).name
+    target = cache_dir() / _CACHE_NAMES.get(name, Path(url).name)
     if target.exists() and target.stat().st_size >= min_bytes:
         return target
 
     if not quiet:
-        print(f"  fetching model {name} ({Path(url).name}) ...", flush=True)
+        print(f"  fetching model {name} ({target.name}) ...", flush=True)
 
     # Download to a sibling temp file and rename, so a cancelled or failed
     # fetch can never leave a half-written model behind for the next run.

@@ -23,7 +23,7 @@ from typing import Any, Callable, Iterable, Iterator, Sequence
 
 from PIL import Image
 
-from . import captioners, detectors, images, masks, superres
+from . import captioners, detectors, images, masks, segment, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
@@ -62,8 +62,12 @@ class CropRecord:
     Carried through so the caption pass can read head pose, including on a
     resumed run where the detector is never re-run."""
     mask_file: str | None = None
-    """The ``-masklabel.png`` written with --mask-faces, else None."""
+    """The ``-masklabel.png`` written with --mask-faces or --mask-background,
+    else None."""
     masked_faces: int = 0
+    background_mask: str | None = None
+    """How the background was masked: ``outline`` from the person matte,
+    ``box`` from the detection box when the matte found no person, or None."""
     caption: str = ""
 
 
@@ -90,6 +94,8 @@ class Stats:
     skipped_no_face: int = 0
     masked: int = 0
     unmasked_kept: int = 0
+    background_masked: int = 0
+    background_box: int = 0
     errors: int = 0
     by_tier: dict[int, int] = field(default_factory=dict)
     seconds: float = 0.0
@@ -105,6 +111,7 @@ class _Crop:
     sharpness: float
     mask: Image.Image | None = None
     masked_faces: int = 0
+    background: str | None = None
 
 
 @dataclass
@@ -161,6 +168,14 @@ class Pipeline:
             self._local.face_detector = existing
         return existing
 
+    def _segmenter(self):
+        """The per-thread person matting net for background masks."""
+        existing = getattr(self._local, "segmenter", None)
+        if existing is None:
+            existing = segment.create(quiet=self.cfg.quiet)
+            self._local.segmenter = existing
+        return existing
+
     # -- entry point ------------------------------------------------------
     def run(self) -> Stats:
         started = time.monotonic()
@@ -214,7 +229,7 @@ class Pipeline:
         if not cfg.dry_run:
             self._write_summary()
             if cfg.training_config:
-                self._write_training_config(masked=cfg.mask_faces)
+                self._write_training_config(masked=cfg.writes_masks)
 
         self.stats.seconds = time.monotonic() - started
         return self.stats
@@ -275,6 +290,7 @@ class Pipeline:
                             if item.mask is not None else None
                         ),
                         masked_faces=item.masked_faces,
+                        background_mask=item.background,
                     )
 
                     if not cfg.dry_run:
@@ -288,8 +304,12 @@ class Pipeline:
                     self.stats.written += 1
                     if item.masked_faces:
                         self.stats.masked += 1
-                    elif item.mask is not None:
+                    elif cfg.mask_faces:
                         self.stats.unmasked_kept += 1
+                    if item.background:
+                        self.stats.background_masked += 1
+                    if item.background == "box":
+                        self.stats.background_box += 1
                     self.stats.by_tier[plan.tier] = self.stats.by_tier.get(plan.tier, 0) + 1
                     next_index += 1
 
@@ -386,30 +406,56 @@ class Pipeline:
                     continue
 
                 item = _Crop(region, plan, crop, sharpness)
-                if cfg.mask_faces:
-                    faces = self._face_detector().detect(images.to_bgr(crop))
-                    if not faces and cfg.mask_missing == "skip":
-                        result.skips.append(SkipRecord(
-                            str(path), "no_face",
-                            "no face found to mask (--mask-missing keep to use it anyway)",
-                            sharpness=sharpness,
-                        ))
-                        crop.close()
-                        continue
-                    # A kept crop with no face still gets a mask, all white:
-                    # with masked training on, a missing mask file does not
-                    # mean "learn everything" in every trainer.
-                    item.mask = masks.build_mask(
-                        plan.tier, [f.rect for f in faces], cfg.mask_margin
-                    )
-                    item.masked_faces = len(faces)
-
+                if cfg.writes_masks and not self._mask(item, path, result):
+                    crop.close()
+                    continue
                 result.crops.append(item)
         except Exception as exc:  # noqa: BLE001
             result.error = f"{type(exc).__name__}: {exc}"
         finally:
             image.close()
         return result
+
+    def _mask(self, item: _Crop, path: Path, result: _ImageResult) -> bool:
+        """Build ``item``'s loss mask. False means the crop is to be skipped."""
+        cfg = self.cfg
+        plan, bgr = item.plan, images.to_bgr(item.image)
+
+        faces: list[Region] = []
+        if cfg.mask_faces:
+            faces = self._face_detector().detect(bgr)
+            if not faces and cfg.mask_missing == "skip":
+                result.skips.append(SkipRecord(
+                    str(path), "no_face",
+                    "no face found to mask (--mask-missing keep to use it anyway)",
+                    sharpness=item.sharpness,
+                ))
+                return False
+
+        person = None
+        if cfg.mask_background:
+            # The detection box, in the resized crop's pixels.
+            scale = plan.tier / plan.rect.w
+            box = Rect(
+                (item.region.rect.x - plan.rect.x) * scale,
+                (item.region.rect.y - plan.rect.y) * scale,
+                item.region.rect.w * scale,
+                item.region.rect.h * scale,
+            )
+            person = masks.isolate_person(self._segmenter().matte(bgr), box)
+            item.background = "outline"
+            if person is None:
+                person, item.background = masks.box_person(plan.tier, box), "box"
+
+        # A kept crop with no face still gets a mask, all white if nothing
+        # else is masked: with masked training on, a missing mask file does
+        # not mean "learn everything" in every trainer.
+        item.mask = masks.build_mask(
+            plan.tier, [f.rect for f in faces], cfg.mask_margin,
+            person=person, background=cfg.background_weight,
+        )
+        item.masked_faces = len(faces)
+        return True
 
     # -- pass 2 -----------------------------------------------------------
     def _caption_pass(self) -> None:
@@ -568,7 +614,7 @@ class Pipeline:
 
         if not cfg.dry_run and records:
             self._write_training_config(
-                masked=cfg.mask_faces or any(r.mask_file for r in records)
+                masked=cfg.writes_masks or any(r.mask_file for r in records)
             )
 
     def _load_manifest_records(self) -> list[CropRecord]:
@@ -710,10 +756,11 @@ class Pipeline:
         epochs * (images / batch_size) = steps; the clamp guards against
         absurd epoch counts at either end of the dataset-size range.
 
-        The one exception: with face masks, masked training is switched on
-        and the masked-out faces get no weight and no whole-image steps.
-        OneTrainer's defaults still train on the unmasked image one step in
-        ten, which would teach the face after all.
+        The one exception: with masks, masked training is switched on and
+        each pixel's weight is left to its mask value alone -- no floor, and
+        no whole-image steps. OneTrainer's defaults still train on the
+        unmasked image one step in ten, which would teach the face after
+        all, and floor every pixel at 0.1, which would override the mask.
         """
         if not self.stats.by_tier:
             return
@@ -760,7 +807,7 @@ class Pipeline:
             self.stats.skipped_no_face += 1
 
     def _close_detectors(self) -> None:
-        for attr in ("detector", "face_detector"):
+        for attr in ("detector", "face_detector", "segmenter"):
             detector = getattr(self._local, attr, None)
             if detector is not None:
                 detector.close()

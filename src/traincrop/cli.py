@@ -47,6 +47,9 @@ examples:
   traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
       --mask-faces --training-config
 
+  # learn the subject, not the backgrounds the photos were taken against
+  traincrop -i ./photos -o ./dataset --mask-background --training-config
+
   # see what would happen, without writing anything or loading a model
   traincrop -i ./photos -o ./dataset --dry-run
 
@@ -72,13 +75,16 @@ examples:
   traincrop -i ./photos -o ./dataset --min-sharpness 5
   traincrop -i ./photos -o ./dataset --min-sharpness 0
 
-face masks:
-  --mask-faces runs a face detector over each crop and writes NAME-masklabel.png
-  beside it: white where the trainer should learn, a soft black oval over every
-  face. The face is left untouched in the image itself -- covering it would
-  teach the LoRA faceless people -- and masked training simply scores nothing
-  inside the oval, so the face's identity is not learned. OneTrainer reads
-  these masks with masked training on, which --training-config then enables.
+masks:
+  --mask-faces and --mask-background write NAME-masklabel.png beside each crop:
+  a greyscale loss weight per pixel, white where the trainer should learn.
+  --mask-faces puts a soft black oval over every face; --mask-background drops
+  everything but the person (found with a person matting model) to
+  --background-weight. Either or both. The crop itself is left untouched --
+  covering the face or the background would teach the LoRA the cover -- and
+  masked training scores each pixel only as much as its mask allows.
+  OneTrainer reads these masks with masked training on, which
+  --training-config then enables.
 
 sizing rule:
   A crop is produced at the largest configured size whose minimum is met by the
@@ -219,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
              "plain resize; needs opencv-contrib-python. Crops that already "
              "meet or exceed their tier are unaffected")
 
-    mask = parser.add_argument_group("face masking")
+    mask = parser.add_argument_group("masks")
     add(mask, "--mask-faces", action="store_true",
         help="write a NAME-masklabel.png beside each crop that masks every "
              "face out of training, for a body/outfit/style LoRA that should "
@@ -234,6 +240,13 @@ def build_parser() -> argparse.ArgumentParser:
     add(mask, "--mask-min-score", type=float, metavar="F",
         help="face confidence needed to mask it; lower misses fewer faces "
              f"(default: {_default('mask_min_score')})")
+    add(mask, "--mask-background", action="store_true",
+        help="write a NAME-masklabel.png beside each crop that weights the "
+             "background down, so the LoRA learns the person rather than "
+             "where the photos were taken; combines with --mask-faces")
+    add(mask, "--background-weight", type=float, metavar="F",
+        help="loss weight of the background, 0-1; a little keeps the LoRA "
+             f"from drifting there (default: {_default('background_weight')})")
 
     out = parser.add_argument_group("output files")
     add(out, "--prefix", metavar="STR", help="filename prefix before the number")
@@ -501,6 +514,11 @@ def _summarise(config: Config, stats, emit) -> None:
     if stats.skipped_no_face:
         lines.append(f"skipped          {stats.skipped_no_face} crop(s) with no face "
                      f"found to mask")
+    if config.mask_background:
+        lines.append(f"bg masked        in {stats.background_masked} crop(s)")
+    if stats.background_box:
+        lines.append(f"masked by box    {stats.background_box} crop(s) where no person "
+                     f"outline was found")
     if stats.unmasked_kept:
         lines.append(f"kept unmasked    {stats.unmasked_kept} crop(s) with no face found "
                      f"-- check these for a visible face")

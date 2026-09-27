@@ -44,7 +44,7 @@ class Config:
     upscaling instead of a plain resize. A crop that already meets or
     exceeds the tier is always just resized down; this never applies then."""
 
-    # -- face masking ----------------------------------------------------
+    # -- masks -----------------------------------------------------------
     mask_faces: bool = False
     """Write a ``-masklabel.png`` beside each crop that blacks out every face
     in it, so masked training learns body, outfit and style but not identity.
@@ -54,6 +54,13 @@ class Config:
     mask_min_score: float = 0.5
     """Lower than min_score on purpose: a missed face is learned, while a
     false positive only costs a patch of background."""
+    mask_background: bool = False
+    """Weight the background down in the same ``-masklabel.png``, using a
+    person matte, so the LoRA learns the subject rather than the places the
+    photos were taken. Segments people, so needs a face or person detector."""
+    background_weight: float = 0.1
+    """Loss weight of the background, 0-1. Not 0 by default: a little weight
+    keeps the LoRA from drifting on the background it is never scored on."""
 
     # -- output ----------------------------------------------------------
     prefix: str = ""
@@ -129,6 +136,13 @@ class Config:
             problems.append("--mask-missing must be skip or keep")
         if not 0 <= self.mask_min_score <= 1:
             problems.append("--mask-min-score must be in [0, 1]")
+        if not 0 <= self.background_weight <= 1:
+            problems.append("--background-weight must be in [0, 1]")
+        if self.mask_background and not self._detects_people():
+            problems.append(
+                "--mask-background segments people, so it needs a face "
+                "detector or --detector yolox with classes including person"
+            )
         if self.mask_faces and self.detector in ("yunet", "haar"):
             problems.append(
                 "--mask-faces needs a body or object detector (e.g. --detector "
@@ -143,6 +157,18 @@ class Config:
 
         if problems:
             raise ValueError("invalid configuration:\n  - " + "\n  - ".join(problems))
+
+    def _detects_people(self) -> bool:
+        if self.detector != "yolox":
+            return True  # faces, or a custom detector we cannot see into
+        classes = self.detector_opts.get("classes", "person")
+        names = classes.split(",") if isinstance(classes, str) else classes
+        names = {str(n).strip().lower() for n in names if str(n).strip()}
+        return not names or bool(names & {"person", "all"})  # empty means all
+
+    @property
+    def writes_masks(self) -> bool:
+        return self.mask_faces or self.mask_background
 
     @property
     def extension(self) -> str:

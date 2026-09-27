@@ -31,6 +31,9 @@ dataset/
 ./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
     --mask-faces --training-config
 
+# Learn the subject, not the backgrounds the photos were taken against
+./traincrop -i ~/Pictures/portraits -o ./dataset --mask-background --training-config
+
 # Crop dogs
 ./traincrop -i ~/Pictures/dogs -o ./dataset --detector yolox --detector-opt classes=dog
 
@@ -374,6 +377,37 @@ be all mask, so that combination is refused. Masking cuts identity leakage
 sharply but not to zero — skin tone and hair colour are still visible outside
 the oval — so keep the trigger word and captions about the body and outfit.
 
+## Masking the background
+
+Photos from the same shoot share a backdrop, and a LoRA trained on them
+learns that backdrop along with the subject: generations drift towards the
+same studio wall or bedroom. `--mask-background` weights the background
+down in the same `-masklabel.png`:
+
+```bash
+./traincrop -i ./photos -o ./dataset --mask-background --training-config
+```
+
+A person matting model ([MODNet](https://github.com/ZHKKKe/MODNet), 26 MB,
+downloaded on first use) outlines the person in each crop, hair included.
+The person stays white; everything else drops to `--background-weight`
+(default 0.1). Not 0 by default — a little weight keeps the LoRA from
+drifting on a background it is never scored on; `--background-weight 0`
+ignores it completely.
+
+- **Only the detected person is kept.** The matte marks every foreground
+  thing in the crop; blobs that don't reach into the detection box — a
+  bystander, a ball on its own — are treated as background.
+- **When no outline is found**, the detection box stands in for it, and the
+  summary counts these (`background_mask: "box"` in `manifest.jsonl`).
+- **It combines with `--mask-faces`** into one mask: body 1, background 0.1,
+  face 0. OneTrainer multiplies the loss by the mask's grey level, so all
+  three weights come through from a single file.
+
+It works with face crops as well as body crops — a character LoRA that
+learns the person but not the room. It segments people, so it is refused
+with a YOLOX class list that doesn't include `person`.
+
 ## Resuming
 
 Interrupt a long run and pick it up where it stopped:
@@ -413,9 +447,12 @@ The fields that get overwritten:
   and 300 so a very small or very large dataset doesn't produce a nonsensical
   epoch count.
 - **`masked_training`**, **`unmasked_probability`**, **`unmasked_weight`** —
-  only when the dataset has face masks (see
-  [Body LoRAs without the face](#body-loras-without-the-face)): masked
-  training on, and no weight or steps given to the masked-out faces.
+  only when the dataset has masks (see
+  [Body LoRAs without the face](#body-loras-without-the-face) and
+  [Masking the background](#masking-the-background)): masked training on,
+  with no whole-image steps and no weight floor, so every pixel is weighted
+  exactly as its mask says. OneTrainer's `unmasked_weight` is a floor under
+  the mask — the default 0.1 would lift the masked-out faces to 0.1.
 
 If the dataset has zero crops, or the bundled template is missing/invalid,
 nothing is written and a warning is printed — the rest of the run is
@@ -498,6 +535,7 @@ Command-line flags always win over the config file, so you can tune a single set
 **Models:**
 - **Detector weights** (YuNet: 230 KB, YOLOX: 35 MB) — downloaded once, cached in `~/.cache/traincrop/`
 - **Upscale model** (FSRCNN: ~40 KB, only with `--upscale`) — downloaded once, cached alongside the detector weights
+- **Matting model** (MODNet: 26 MB, only with `--mask-background`) — downloaded once, cached alongside the detector weights
 - **Caption model** (SmolVLM by default: 4.5 GB) — downloaded once, cached in Hugging Face's cache (`~/.cache/huggingface/`), fully offline after first download
 - Model downloads resume on interruption; partial files are never cached
 

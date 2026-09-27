@@ -1,9 +1,11 @@
-"""Face masks for masked (loss-weighted) LoRA training.
+"""Loss masks for masked (loss-weighted) LoRA training.
 
-A body or outfit LoRA should not learn the subject's face, but painting over
-the face teaches the model faceless people. The face stays in the crop
-instead, and a mask beside it tells the trainer to ignore those pixels when
-scoring its output: white is learned, black is not.
+A body or outfit LoRA should not learn the subject's face, and hardly any
+LoRA should learn the backgrounds its photos happened to be taken against.
+Painting over either teaches the model the paint. The pixels stay in the
+crop instead, and a mask beside it tells the trainer how much each one
+counts when scoring its output: white is learned in full, black not at all,
+grey in proportion -- OneTrainer multiplies the loss by the mask value.
 
 The file naming follows OneTrainer's convention -- ``0001.png`` pairs with
 ``0001-masklabel.png`` -- which OneTrainer picks up with masked training on.
@@ -14,6 +16,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
+import cv2
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 from .geometry import Rect
@@ -33,15 +37,75 @@ def mask_name(image_file: str) -> str:
     return str(path.with_name(f"{path.stem}{MASK_SUFFIX}.png"))
 
 
-def build_mask(size: int, faces: Sequence[Rect], margin: float) -> Image.Image:
-    """A ``size`` x ``size`` greyscale mask, white except over each face.
+def isolate_person(matte: np.ndarray, box: Rect) -> np.ndarray | None:
+    """Keep only the part of ``matte`` that belongs to the detected person.
 
-    Each face becomes an ellipse around its box, grown by ``margin`` of the
-    box side on every side so hair, ears and jaw are covered too -- they carry
-    identity as much as the eyes do. The edge is feathered outward, so the
-    face itself stays fully black and the falloff eats into the surroundings
-    rather than the other way round.
+    The matte marks every foreground thing in the crop -- a bystander, a
+    ball -- so only the blobs that reach into the detection ``box`` are kept.
+    Kept blobs are grown by a hair before being cut out, so the soft edge of
+    the matte survives instead of being clipped at the 50% line.
+
+    Returns None when nothing in the matte touches the box.
     """
+    h, w = matte.shape
+    solid = (matte >= 0.5).astype(np.uint8)
+    count, labels = cv2.connectedComponents(solid, connectivity=8)
+    if count <= 1:
+        return None
+
+    x0, y0 = max(0, int(box.x)), max(0, int(box.y))
+    x1, y1 = min(w, int(np.ceil(box.x2))), min(h, int(np.ceil(box.y2)))
+    touching = np.unique(labels[y0:y1, x0:x1])
+    touching = touching[touching != 0]
+    if touching.size == 0:
+        return None
+
+    keep = np.isin(labels, touching).astype(np.uint8)
+    grow = max(1, min(h, w) // 100)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1))
+    keep = cv2.dilate(keep, kernel)
+    return np.where(keep > 0, matte, 0.0).astype(np.float32)
+
+
+def box_person(size: int, box: Rect) -> np.ndarray:
+    """A hard-edged stand-in for a person matte: 1 inside the box, else 0."""
+    person = np.zeros((size, size), dtype=np.float32)
+    x0, y0 = max(0, int(box.x)), max(0, int(box.y))
+    x1, y1 = min(size, int(np.ceil(box.x2))), min(size, int(np.ceil(box.y2)))
+    person[y0:y1, x0:x1] = 1.0
+    return person
+
+
+def build_mask(
+    size: int,
+    faces: Sequence[Rect],
+    margin: float,
+    *,
+    person: np.ndarray | None = None,
+    background: float = 0.1,
+) -> Image.Image:
+    """A ``size`` x ``size`` greyscale mask: white where the crop is learned.
+
+    With ``person`` (a ``size`` x ``size`` matte in [0, 1]), the background
+    drops to the ``background`` weight and the person stays white, blending
+    along the matte's soft edge. Without it, the whole crop starts white.
+
+    Each face then becomes a black ellipse around its box, grown by
+    ``margin`` of the box side on every side so hair, ears and jaw are
+    covered too -- they carry identity as much as the eyes do. The edge is
+    feathered outward, so the face itself stays fully black and the falloff
+    eats into the surroundings rather than the other way round.
+    """
+    faces_mask = _face_mask(size, faces, margin)
+    if person is None:
+        return faces_mask
+
+    weights = background + (1.0 - background) * np.clip(person, 0.0, 1.0)
+    combined = np.minimum(weights, np.asarray(faces_mask, dtype=np.float32) / 255.0)
+    return Image.fromarray(np.round(combined * 255.0).astype(np.uint8))
+
+
+def _face_mask(size: int, faces: Sequence[Rect], margin: float) -> Image.Image:
     mask = Image.new("L", (size, size), 255)
     if not faces:
         return mask
