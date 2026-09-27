@@ -10,12 +10,12 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from traincrop import models  # noqa: E402
-from traincrop import pipeline as pipeline_module  # noqa: E402
-from traincrop.config import Config  # noqa: E402
-from traincrop.geometry import Rect  # noqa: E402
-from traincrop.masks import build_mask, isolate_person  # noqa: E402
-from traincrop.pipeline import MANIFEST_NAME, TRAINING_CONFIG_NAME, Pipeline  # noqa: E402
+from robocrop import models  # noqa: E402
+from robocrop import pipeline as pipeline_module  # noqa: E402
+from robocrop.config import Config  # noqa: E402
+from robocrop.geometry import Rect  # noqa: E402
+from robocrop.masks import build_mask, isolate_person  # noqa: E402
+from robocrop.pipeline import MANIFEST_NAME, TRAINING_CONFIG_NAME, Pipeline  # noqa: E402
 
 from test_face_mask import head, stubs  # noqa: E402,F401
 from test_pipeline import base_config, make_photo  # noqa: E402

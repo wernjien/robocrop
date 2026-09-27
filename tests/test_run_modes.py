@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from traincrop.config import Config  # noqa: E402
-from traincrop.pipeline import Pipeline, MANIFEST_NAME, TRAINING_CONFIG_NAME  # noqa: E402
+from robocrop.config import Config  # noqa: E402
+from robocrop.pipeline import Pipeline, MANIFEST_NAME, TRAINING_CONFIG_NAME  # noqa: E402
 
 from test_pipeline import StubDetector, base_config, face, make_photo, stub  # noqa: E402,F401
 
@@ -121,10 +121,10 @@ def test_a_bad_caption_template_is_caught_before_cropping(template, message):
 
 
 def test_every_template_token_is_filled():
-    from traincrop.captioners.template import TOKENS, TemplateCaptioner
-    from traincrop.captioners.base import CaptionRequest
-    from traincrop.detectors.base import Region
-    from traincrop.geometry import Rect
+    from robocrop.captioners.template import TOKENS, TemplateCaptioner
+    from robocrop.captioners.base import CaptionRequest
+    from robocrop.detectors.base import Region
+    from robocrop.geometry import Rect
 
     captioner = TemplateCaptioner(" ".join("{%s}" % t for t in TOKENS))
     request = CaptionRequest(Image.new("RGB", (64, 64)), "a.png", Region(Rect(0, 0, 8, 8), 0.9), 512, 1)
@@ -132,7 +132,7 @@ def test_every_template_token_is_filled():
 
 
 def test_output_cannot_be_the_input(tmp_path, monkeypatch):
-    from traincrop.cli import build_config
+    from robocrop.cli import build_config
 
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit, match="different directory"):

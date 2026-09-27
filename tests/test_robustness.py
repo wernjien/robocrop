@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from traincrop import pipeline as pipeline_module  # noqa: E402
-from traincrop.images import iter_images  # noqa: E402
-from traincrop.pipeline import MANIFEST_NAME, TRAINING_CONFIG_NAME, Pipeline  # noqa: E402
+from robocrop import pipeline as pipeline_module  # noqa: E402
+from robocrop.images import iter_images  # noqa: E402
+from robocrop.pipeline import MANIFEST_NAME, TRAINING_CONFIG_NAME, Pipeline  # noqa: E402
 
 from test_pipeline import base_config, face, make_photo, stub  # noqa: E402,F401
 
@@ -210,7 +210,7 @@ def test_an_output_inside_the_input_is_not_scanned(tmp_path, stub):
     elsewhere = Pipeline(base_config(tmp_path, output=photos / "dataset2")).run()
 
     assert again.scanned == 1       # its own output
-    assert elsewhere.scanned == 1   # another traincrop dataset under the input
+    assert elsewhere.scanned == 1   # another robocrop dataset under the input
 
 
 def test_mask_side_files_are_never_scanned_as_photos(tmp_path):

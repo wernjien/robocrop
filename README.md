@@ -1,4 +1,4 @@
-# TrainCrop
+# RoboCrop
 
 Walks a folder of photos (including every subfolder), detects and crops objects
 of interest square at 512 / 768 / 1024, and writes a caption next to each crop,
@@ -23,39 +23,39 @@ dataset/
 
 ```bash
 # Crop faces (default)
-./traincrop --input ~/Pictures/portraits --output ./dataset
+./robocrop --input ~/Pictures/portraits --output ./dataset
 
 # Crop whole bodies
-./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person
+./robocrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person
 
 # Crop whole bodies, with faces masked out of training (learn the body, not the identity)
-./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
+./robocrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
     --mask-faces --training-config
 
 # Learn the subject, not the backgrounds the photos were taken against
-./traincrop -i ~/Pictures/portraits -o ./dataset --mask-background --training-config
+./robocrop -i ~/Pictures/portraits -o ./dataset --mask-background --training-config
 
 # Both: learn the body and outfit, but neither the face nor the background
-./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
+./robocrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
     --mask-faces --mask-background --training-config
 
 # Learn the person, not the outfits they were photographed in
-./traincrop -i ~/Pictures/portraits -o ./dataset --mask-clothing --training-config
+./robocrop -i ~/Pictures/portraits -o ./dataset --mask-clothing --training-config
 
 # Crop dogs
-./traincrop -i ~/Pictures/dogs -o ./dataset --detector yolox --detector-opt classes=dog
+./robocrop -i ~/Pictures/dogs -o ./dataset --detector yolox --detector-opt classes=dog
 
 # Crop cats
-./traincrop -i ~/Pictures/cats -o ./dataset --detector yolox --detector-opt classes=cat
+./robocrop -i ~/Pictures/cats -o ./dataset --detector yolox --detector-opt classes=cat
 
 # Crop only, add captions later (or never)
-./traincrop -i ~/Pictures/portraits -o ./dataset --captioner none
+./robocrop -i ~/Pictures/portraits -o ./dataset --captioner none
 ```
 
-Or set up a `traincrop.toml` file once and reuse it:
+Or set up a `robocrop.toml` file once and reuse it:
 
 ```bash
-./traincrop    # auto-loads ./traincrop.toml
+./robocrop    # auto-loads ./robocrop.toml
 ```
 
 The first run takes a couple of minutes to set itself up (see
@@ -65,7 +65,7 @@ it starts immediately.
 Try the settings before committing to them:
 
 ```bash
-./traincrop -i ~/Pictures/portraits -o ./dataset --dry-run
+./robocrop -i ~/Pictures/portraits -o ./dataset --dry-run
 ```
 
 `--dry-run` reports exactly what would be produced, at which size, and what
@@ -83,7 +83,7 @@ python3 --version    # should be 3.11+
 ```
 
 ### First Run
-The first time you run `./traincrop`, it:
+The first time you run `./robocrop`, it:
 1. Creates a private virtualenv next to the script (`.venv/`)
 2. Installs detection and image processing libraries (~200 MB)
 3. If `--captioner vlm` (the default), also installs captioning libraries —
@@ -100,7 +100,7 @@ Nothing is installed system-wide — everything is local to this directory.
 | What | Size | Location |
 |---|---|---|
 | `.venv/` (Python packages) | 1.1 GB | This directory |
-| `~/.cache/traincrop/` (detector and mask weights) | ~40–175 MB | Your home directory |
+| `~/.cache/robocrop/` (detector and mask weights) | ~40–175 MB | Your home directory |
 | `~/.cache/huggingface/` (caption model) | 4.5–7.5 GB | Your home directory |
 | Output dataset | ~2–5 MB per 1000 crops | `--output` directory |
 
@@ -115,14 +115,14 @@ Nothing is installed system-wide — everything is local to this directory.
 If you don't want to download 4+ GB for the caption model, use the template captioner instead:
 
 ```bash
-./traincrop -i ./photos -o ./dataset --captioner template
+./robocrop -i ./photos -o ./dataset --captioner template
 ```
 
 This generates captions from attributes (head direction from landmarks, lighting from pixels) — no model, no download, instant. Or use `--captioner none` for crops only.
 
 To skip the model on a machine that has it, set:
 ```bash
-TRAINCROP_NO_VLM=1 ./traincrop -i ./photos -o ./dataset
+ROBOCROP_NO_VLM=1 ./robocrop -i ./photos -o ./dataset
 ```
 
 ### Network Requirements
@@ -153,7 +153,7 @@ The bundled FSRCNN model enlarges by 2x in one pass, and the most a
 qualifying crop can need enlarging is `1 / min-ratio` times its own size —
 so keeping `--min-ratio` above 0.5 keeps every enlargement inside what the
 model does in one pass. Below that, the portion beyond 2x falls back to a
-plain resize; `traincrop` warns when a run is configured this way.
+plain resize; `robocrop` warns when a run is configured this way.
 
 ## Padding
 
@@ -199,8 +199,8 @@ still a heuristic, so every crop's score is recorded in `manifest.jsonl`
 retune it from your own dataset:
 
 ```bash
-./traincrop -i ./photos -o ./dataset --min-sharpness 5   # looser
-./traincrop -i ./photos -o ./dataset --min-sharpness 0   # disabled
+./robocrop -i ./photos -o ./dataset --min-sharpness 5   # looser
+./robocrop -i ./photos -o ./dataset --min-sharpness 0   # disabled
 ```
 
 ## Captions
@@ -210,7 +210,7 @@ The model downloads once (about 4.5 GB by default) and never sends an image
 anywhere afterwards.
 
 ```bash
-./traincrop -i ./photos -o ./dataset --trigger "my subject"
+./robocrop -i ./photos -o ./dataset --trigger "my subject"
 ```
 
 ```
@@ -230,7 +230,7 @@ what you want the model to learn as changeable.
 | `blip` | ~1.9 GB | quick and generic, not steerable |
 
 Any Hugging Face image-text-to-text model id also works. Run
-`./traincrop --list-models` to see the list.
+`./robocrop --list-models` to see the list.
 
 Other options:
 
@@ -249,10 +249,10 @@ landmarks, for pose hints) from its `manifest.jsonl`:
 
 ```bash
 # cropped earlier with --captioner none; add captions now
-./traincrop -o ./dataset --caption-only --captioner vlm
+./robocrop -o ./dataset --caption-only --captioner vlm
 
 # only caption crops that don't have a .txt file yet
-./traincrop -o ./dataset --caption-only --captioner template --resume
+./robocrop -o ./dataset --caption-only --captioner template --resume
 ```
 
 This is also how you switch caption backends after the fact, or add a
@@ -267,8 +267,8 @@ Every face becomes its own numbered crop by default. A face too small for the
 that are actually usable.
 
 ```bash
-./traincrop -i ./photos -o ./dataset --multi-face largest   # only the most prominent face per photo
-./traincrop -i ./photos -o ./dataset --multi-face skip      # ignore photos with more than one face
+./robocrop -i ./photos -o ./dataset --multi-face largest   # only the most prominent face per photo
+./robocrop -i ./photos -o ./dataset --multi-face skip      # ignore photos with more than one face
 ```
 
 ## Detecting different objects
@@ -277,19 +277,19 @@ The detector is pluggable — everything downstream works off a bounding box, so
 
 ```bash
 # Faces (default): fast, accurate, includes landmarks for pose hints
-./traincrop -i ./photos -o ./dataset
+./robocrop -i ./photos -o ./dataset
 
 # Faces (fallback): no landmarks, frontal faces only
-./traincrop -i ./photos -o ./dataset --detector haar
+./robocrop -i ./photos -o ./dataset --detector haar
 
 # Whole bodies
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person
 
 # Multiple classes at once
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=dog,cat,bird
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=dog,cat,bird
 
 # Single class
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=car
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=car
 ```
 
 | `--detector` | What it finds | Notes |
@@ -319,25 +319,25 @@ teddy bear, hair drier, toothbrush
 
 ```bash
 # Dogs and cats
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=dog,cat
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=dog,cat
 
 # Vehicles
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=car,truck,bus
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=car,truck,bus
 
 # Furniture
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=chair,couch,table
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=chair,couch,table
 
 # Food items
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=pizza,donut,cake,apple
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=pizza,donut,cake,apple
 
 # Sports equipment
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=tennis_racket,skateboard,kite
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=tennis_racket,skateboard,kite
 ```
 
 ### Adding custom detectors
 
 To detect objects not in COCO (80 classes), you can add your own detector. Drop a module in
-`src/traincrop/detectors/` exposing a `BaseDetector` subclass whose `detect()` returns
+`src/robocrop/detectors/` exposing a `BaseDetector` subclass whose `detect()` returns
 `Region` objects, and add one line to `_BACKENDS` in that package's `__init__.py`.
 Nothing else changes.
 
@@ -352,7 +352,7 @@ that this subject has a blob for a face. `--mask-faces` leaves the face alone
 in the image and writes a mask beside each crop instead:
 
 ```bash
-./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
+./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
     --mask-faces --training-config
 ```
 
@@ -394,7 +394,7 @@ same studio wall or bedroom. `--mask-background` weights the background
 down in the same `-masklabel.png`:
 
 ```bash
-./traincrop -i ./photos -o ./dataset --mask-background --training-config
+./robocrop -i ./photos -o ./dataset --mask-background --training-config
 ```
 
 A person matting model ([MODNet](https://github.com/ZHKKKe/MODNet), 26 MB,
@@ -416,7 +416,7 @@ ignores it completely.
   black and white):
 
   ```bash
-  ./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
+  ./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
       --mask-faces --mask-background --training-config
   ```
 
@@ -433,7 +433,7 @@ person: prompt something else to wear and the old outfit bleeds through.
 they had on:
 
 ```bash
-./traincrop -i ./photos -o ./dataset --mask-clothing --training-config
+./robocrop -i ./photos -o ./dataset --mask-clothing --training-config
 ```
 
 A clothes parser ([SegFormer-B2 fine-tuned on ATR](https://huggingface.co/mattmdjaga/segformer_b2_clothes),
@@ -454,7 +454,7 @@ to `--clothing-weight` (default 0). Hair, face and skin are left alone.
   a character without their wardrobe or their rooms:
 
   ```bash
-  ./traincrop -i ./photos -o ./dataset --mask-clothing --mask-background --training-config
+  ./robocrop -i ./photos -o ./dataset --mask-clothing --mask-background --training-config
   ```
 
   With `--mask-faces` as well, little but bare skin is left to learn.
@@ -467,7 +467,7 @@ class list that doesn't include `person`.
 Interrupt a long run and pick it up where it stopped:
 
 ```bash
-./traincrop -i ./photos -o ./dataset --resume
+./robocrop -i ./photos -o ./dataset --resume
 ```
 
 Sources already recorded in `manifest.jsonl` are skipped and numbering carries
@@ -482,17 +482,17 @@ before starting, so a smaller new run can't leave old files behind for the
 trainer to pick up; files it never made are left alone.
 
 An output directory inside the input one is fine — the scan never enters it,
-or any other folder holding a traincrop `manifest.jsonl`, and never treats
+or any other folder holding a robocrop `manifest.jsonl`, and never treats
 `-masklabel.png` files as photos.
 
 ## Generating a OneTrainer config
 
 ```bash
-./traincrop -i ./photos -o ./dataset --training-config
+./robocrop -i ./photos -o ./dataset --training-config
 ```
 
 Writes `training_config.json` into the output directory: a copy of
-`traincrop.onetrainer.example.json` (bundled at the repo root) with a few
+`robocrop.onetrainer.example.json` (bundled at the repo root) with a few
 fields filled in from what this run actually produced. Everything else in
 that file is yours to hand-edit for your own base model, LoRA rank,
 optimizer, and so on — there is no separate override flag, the bundled file
@@ -532,12 +532,12 @@ To (re)generate `training_config.json` for a dataset you already produced,
 without touching crops or captions, use `--training-config-only`:
 
 ```bash
-./traincrop -o ./dataset --training-config-only
+./robocrop -o ./dataset --training-config-only
 ```
 
 It reads `manifest.jsonl` for the tier counts and crop total and writes the
 config the same way `--training-config` would — useful after tweaking
-`traincrop.onetrainer.example.json`, or if you skipped `--training-config`
+`robocrop.onetrainer.example.json`, or if you skipped `--training-config`
 on the original run. Like `--caption-only`, it only reads `--output`.
 
 ## Useful flags
@@ -570,33 +570,33 @@ on the original run. Like `--caption-only`, it only reads `--output`.
     --training-config-only  write it for an existing --output dataset, nothing else
 ```
 
-`./traincrop --help` lists all of them.
+`./robocrop --help` lists all of them.
 
 ## Configuration Files
 
-Settings can live in a TOML file instead of on the command line. By default, **`traincrop.toml` in the current directory is auto-loaded** — you don't need to pass `--config` every time:
+Settings can live in a TOML file instead of on the command line. By default, **`robocrop.toml` in the current directory is auto-loaded** — you don't need to pass `--config` every time:
 
 ```bash
-# Auto-loads ./traincrop.toml if it exists:
-./traincrop
+# Auto-loads ./robocrop.toml if it exists:
+./robocrop
 
 # Or override specific settings:
-./traincrop --padding 40 --min-sharpness 0
+./robocrop --padding 40 --min-sharpness 0
 ```
 
 **To set up your config**:
-1. Copy the example: `cp traincrop.example.toml traincrop.toml`
-2. Edit `traincrop.toml`: set `input` to your photos folder and `output` to where you want crops
+1. Copy the example: `cp robocrop.example.toml robocrop.toml`
+2. Edit `robocrop.toml`: set `input` to your photos folder and `output` to where you want crops
 3. Adjust other settings as needed (padding, min_sharpness, trigger word, etc.)
 
 Command-line flags always win over the config file, so you can tune a single setting without editing the file:
 
 ```bash
-./traincrop --min-sharpness 15       # override just this, use rest from traincrop.toml
-./traincrop --config other.toml      # use a different config file
+./robocrop --min-sharpness 15       # override just this, use rest from robocrop.toml
+./robocrop --config other.toml      # use a different config file
 ```
 
-**Personal config files** (`traincrop.toml`, `*.local.toml`, and generated `training_config.json`) are in `.gitignore` — they're yours to customize and won't be committed to version control.
+**Personal config files** (`robocrop.toml`, `*.local.toml`, and generated `training_config.json`) are in `.gitignore` — they're yours to customize and won't be committed to version control.
 
 ## System Information
 
@@ -606,7 +606,7 @@ Command-line flags always win over the config file, so you can tune a single set
 **Image formats:** Reads JPEG, PNG, WebP, TIFF, BMP, GIF, and **HEIC/HEIF/AVIF** (iPhone photos). EXIF rotation is applied before detection, so sideways-stored photos are detected and cropped upright.
 
 **Models:**
-- **Detector weights** (YuNet: 230 KB, YOLOX: 35 MB) — downloaded once, cached in `~/.cache/traincrop/`
+- **Detector weights** (YuNet: 230 KB, YOLOX: 35 MB) — downloaded once, cached in `~/.cache/robocrop/`
 - **Upscale model** (FSRCNN: ~40 KB, only with `--upscale`) — downloaded once, cached alongside the detector weights
 - **Matting model** (MODNet: 26 MB, only with `--mask-background`) — downloaded once, cached alongside the detector weights
 - **Clothes parser** (SegFormer-B2: 110 MB, only with `--mask-clothing`) — downloaded once, cached alongside the detector weights

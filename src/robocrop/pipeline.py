@@ -34,7 +34,7 @@ from .geometry import CropRejected, Rect, plan_crop
 MANIFEST_NAME = "manifest.jsonl"
 SUMMARY_NAME = "manifest.json"
 TRAINING_CONFIG_NAME = "training_config.json"
-ONETRAINER_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "traincrop.onetrainer.example.json"
+ONETRAINER_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "robocrop.onetrainer.example.json"
 
 
 @dataclass
@@ -225,7 +225,7 @@ class Pipeline:
             follow_symlinks=cfg.follow_symlinks,
             # With the output inside the input (the defaults: . and
             # ./dataset), earlier crops would otherwise be re-cropped -- this
-            # run's output, and any other traincrop dataset under the input.
+            # run's output, and any other robocrop dataset under the input.
             skip_dirs=(cfg.output,),
             skip_marker=MANIFEST_NAME,
         ))
@@ -668,7 +668,7 @@ class Pipeline:
         manifest = self.cfg.output / MANIFEST_NAME
         if not manifest.exists():
             raise FileExistsError(
-                f"{manifest} not found; run traincrop without --caption-only / "
+                f"{manifest} not found; run robocrop without --caption-only / "
                 f"--training-config-only first to produce a dataset"
             )
         records = self._read_manifest_records()

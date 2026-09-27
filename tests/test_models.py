@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest  # noqa: E402
 
-from traincrop import models  # noqa: E402
+from robocrop import models  # noqa: E402
 
 PAYLOAD = b"not really a model, but it hashes"
 
@@ -18,7 +18,7 @@ PAYLOAD = b"not really a model, but it hashes"
 @pytest.fixture
 def fake_model(tmp_path, monkeypatch):
     """A registry entry whose pinned hash matches PAYLOAD, and a fake server."""
-    monkeypatch.setenv("TRAINCROP_CACHE", str(tmp_path))
+    monkeypatch.setenv("ROBOCROP_CACHE", str(tmp_path))
     monkeypatch.setattr(models, "_verified", set())
     monkeypatch.setitem(models.REGISTRY, "fake", models.Model(
         "https://example.invalid/fake.onnx", hashlib.sha256(PAYLOAD).hexdigest()

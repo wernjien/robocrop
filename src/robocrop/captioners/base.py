@@ -10,7 +10,7 @@ from PIL import Image
 
 from ..detectors.base import Region
 
-#: Openers VLMs habitually emit. A LoRA caption should describe the subject,
+#: Openers VLMs habitually emit. A training caption should describe the subject,
 #: not announce that it is a picture, and these phrases waste tokens and teach
 #: the model nothing.
 _BOILERPLATE = re.compile(

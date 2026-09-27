@@ -2,7 +2,7 @@
 
 Detector weights are a few hundred kilobytes each and are not shipped with
 OpenCV 5 or MediaPipe 1.x, so they are fetched on first use into
-``~/.cache/traincrop/models`` (override with ``TRAINCROP_CACHE``).
+``~/.cache/robocrop/models`` (override with ``ROBOCROP_CACHE``).
 
 Every file is checked against a pinned SHA-256 before it is cached, so a
 truncated download, an HTML error page, or a file swapped upstream is
@@ -89,8 +89,8 @@ class ModelUnavailable(RuntimeError):
 
 
 def cache_dir() -> Path:
-    root = os.environ.get("TRAINCROP_CACHE")
-    base = Path(root).expanduser() if root else Path.home() / ".cache" / "traincrop"
+    root = os.environ.get("ROBOCROP_CACHE")
+    base = Path(root).expanduser() if root else Path.home() / ".cache" / "robocrop"
     path = base / "models"
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -123,7 +123,7 @@ def _download(name: str, model: Model, target: Path, *, quiet: bool) -> None:
     os.close(fd)
     tmp = Path(tmp_name)
     try:
-        req = urllib.request.Request(model.url, headers={"User-Agent": "traincrop"})
+        req = urllib.request.Request(model.url, headers={"User-Agent": "robocrop"})
         with urllib.request.urlopen(req, timeout=60) as resp, tmp.open("wb") as out:
             shutil.copyfileobj(resp, out)
         digest = _sha256(tmp)

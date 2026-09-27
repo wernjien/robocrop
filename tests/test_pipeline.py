@@ -15,11 +15,11 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from traincrop import pipeline as pipeline_module  # noqa: E402
-from traincrop.config import Config  # noqa: E402
-from traincrop.detectors.base import BaseDetector, Region  # noqa: E402
-from traincrop.geometry import Rect  # noqa: E402
-from traincrop.pipeline import Pipeline  # noqa: E402
+from robocrop import pipeline as pipeline_module  # noqa: E402
+from robocrop.config import Config  # noqa: E402
+from robocrop.detectors.base import BaseDetector, Region  # noqa: E402
+from robocrop.geometry import Rect  # noqa: E402
+from robocrop.pipeline import Pipeline  # noqa: E402
 
 
 class StubDetector(BaseDetector):

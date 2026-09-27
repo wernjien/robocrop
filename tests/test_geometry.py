@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest  # noqa: E402
 
-from traincrop.geometry import (  # noqa: E402
+from robocrop.geometry import (  # noqa: E402
     CropRejected, Rect, base_side_from, choose_tier, plan_crop,
 )
 

@@ -1,6 +1,6 @@
-# traincrop configuration.
+# robocrop configuration.
 #
-#   ./traincrop --config traincrop.example.toml
+#   ./robocrop --config robocrop.example.toml
 #
 # Every key matches a command-line flag with dashes turned into underscores.
 # Anything you also pass on the command line wins over this file.
@@ -64,7 +64,7 @@ fill      = "blur"
 # ---- masks --------------------------------------------------------------
 # All write NAME-masklabel.png beside each crop, for masked training.
 #
-# For a body/outfit LoRA that should not learn the face: mask every face
+# To learn the body and outfit but not the face: mask every face
 # out of training. Needs a body detector (detector = "yolox" above).
 # mask_faces     = true
 
@@ -76,14 +76,14 @@ fill      = "blur"
 
 # mask_min_score = 0.5
 
-# Weight the background down, so the LoRA learns the person rather than
+# Weight the background down, so the model learns the person rather than
 # where the photos were taken. Combines with mask_faces.
 # mask_background   = true
 
 # loss weight of the background, 0-1; 0 ignores it completely
 # background_weight = 0.1
 
-# Weight clothing and accessories down, so the LoRA learns the person
+# Weight clothing and accessories down, so the model learns the person
 # rather than their outfits. Combines with the masks above.
 # mask_clothing   = true
 
@@ -106,10 +106,10 @@ digits  = 4
 # vlm | template | none
 captioner     = "vlm"
 
-# see ./traincrop --list-models
+# see ./robocrop --list-models
 caption_model = "smolvlm"
 
-# optional: a unique word to activate this LoRA
+# optional: a unique word the trained model binds the subject to
 # e.g. "my subject" or leave empty for no trigger
 trigger       = ""
 

@@ -9,8 +9,8 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from traincrop.geometry import Rect, plan_crop  # noqa: E402
-from traincrop.images import extract, measure_sharpness  # noqa: E402
+from robocrop.geometry import Rect, plan_crop  # noqa: E402
+from robocrop.images import extract, measure_sharpness  # noqa: E402
 
 
 def _noisy_with_flat_border(size=200, border=40, seed=0):
@@ -45,7 +45,7 @@ def test_extract_upscale_calls_superres_for_an_undersized_crop(monkeypatch):
         calls.append(bgr.shape[:2])
         return np.repeat(np.repeat(bgr, 2, axis=0), 2, axis=1)
 
-    monkeypatch.setattr("traincrop.images.superres.upscale", fake_upscale)
+    monkeypatch.setattr("robocrop.images.superres.upscale", fake_upscale)
 
     image = Image.new("RGB", (100, 100), (10, 20, 30))
     plan = plan_crop(Rect(0, 0, 100, 100), 100, 100, padding=0.0, sizes=(512,), min_ratio=0.1)
@@ -60,7 +60,7 @@ def test_extract_without_upscale_flag_uses_plain_resize(monkeypatch):
     def fail_upscale(bgr):
         raise AssertionError("superres.upscale should not run without --upscale")
 
-    monkeypatch.setattr("traincrop.images.superres.upscale", fail_upscale)
+    monkeypatch.setattr("robocrop.images.superres.upscale", fail_upscale)
 
     image = Image.new("RGB", (100, 100), (10, 20, 30))
     plan = plan_crop(Rect(0, 0, 100, 100), 100, 100, padding=0.0, sizes=(512,), min_ratio=0.1)
@@ -74,7 +74,7 @@ def test_extract_downscale_ignores_upscale_flag(monkeypatch):
     def fail_upscale(bgr):
         raise AssertionError("superres.upscale should not run for a crop that already fits")
 
-    monkeypatch.setattr("traincrop.images.superres.upscale", fail_upscale)
+    monkeypatch.setattr("robocrop.images.superres.upscale", fail_upscale)
 
     image = Image.new("RGB", (1000, 1000), (10, 20, 30))
     plan = plan_crop(Rect(0, 0, 1000, 1000), 1000, 1000, padding=0.0, sizes=(512,), min_ratio=0.1)
@@ -103,7 +103,7 @@ def _reference_pad(image, box, mode):
 
 @pytest.mark.parametrize("mode", ["edge", "reflect"])
 def test_padding_a_slice_matches_padding_the_whole_image(mode):
-    from traincrop.images import _pad_array
+    from robocrop.images import _pad_array
 
     rng = np.random.default_rng(7)
     image = Image.fromarray(rng.integers(0, 256, (90, 120, 3), dtype=np.uint8))

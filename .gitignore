@@ -8,6 +8,6 @@ Thumbs.db
 .claude/settings.local.json
 
 # Personal configuration and generated files (shouldn't be committed)
-traincrop.toml
+robocrop.toml
 *.local.toml
 training_config.json

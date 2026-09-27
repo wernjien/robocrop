@@ -9,13 +9,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pytest  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from traincrop import pipeline as pipeline_module  # noqa: E402
-from traincrop.cli import build_config  # noqa: E402
-from traincrop.config import Config  # noqa: E402
-from traincrop.detectors.base import Region  # noqa: E402
-from traincrop.geometry import Rect  # noqa: E402
-from traincrop.masks import build_mask, mask_name  # noqa: E402
-from traincrop.pipeline import MANIFEST_NAME, SUMMARY_NAME, TRAINING_CONFIG_NAME, Pipeline  # noqa: E402
+from robocrop import pipeline as pipeline_module  # noqa: E402
+from robocrop.cli import build_config  # noqa: E402
+from robocrop.config import Config  # noqa: E402
+from robocrop.detectors.base import Region  # noqa: E402
+from robocrop.geometry import Rect  # noqa: E402
+from robocrop.masks import build_mask, mask_name  # noqa: E402
+from robocrop.pipeline import MANIFEST_NAME, SUMMARY_NAME, TRAINING_CONFIG_NAME, Pipeline  # noqa: E402
 
 from test_pipeline import StubDetector, base_config, make_photo  # noqa: E402
 
@@ -243,7 +243,7 @@ def test_bad_mask_settings_are_rejected(field, value):
 
 
 def test_mask_margin_flag_is_a_percentage(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)  # keep a stray ./traincrop.toml out of it
+    monkeypatch.chdir(tmp_path)  # keep a stray ./robocrop.toml out of it
     cfg = build_config([
         "-i", str(tmp_path), "-d", "yolox", "--mask-faces", "--mask-margin", "50",
     ])

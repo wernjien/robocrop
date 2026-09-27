@@ -1,5 +1,5 @@
 # Local vision-language captioning (--captioner vlm, the default).
-# Skip with TRAINCROP_NO_VLM=1 if you only want crops or template captions.
+# Skip with ROBOCROP_NO_VLM=1 if you only want crops or template captions.
 torch>=2.2
 torchvision>=0.17     # image processors for several VLM families
 transformers>=4.40

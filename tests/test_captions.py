@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest  # noqa: E402
 
-from traincrop.captioners.base import BaseCaptioner, clean_caption  # noqa: E402
+from robocrop.captioners.base import BaseCaptioner, clean_caption  # noqa: E402
 
 
 @pytest.mark.parametrize(

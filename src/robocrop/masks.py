@@ -1,7 +1,7 @@
-"""Loss masks for masked (loss-weighted) LoRA training.
+"""Loss masks for masked (loss-weighted) training.
 
-A body or outfit LoRA should not learn the subject's face, and hardly any
-LoRA should learn the backgrounds its photos happened to be taken against.
+A model of a body or outfit should not learn the subject's face, and hardly
+any model should learn the backgrounds its photos happened to be taken against.
 Painting over either teaches the model the paint. The pixels stay in the
 crop instead, and a mask beside it tells the trainer how much each one
 counts when scoring its output: white is learned in full, black not at all,

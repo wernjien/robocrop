@@ -28,55 +28,55 @@ class _Formatter(argparse.RawDescriptionHelpFormatter):
 EPILOG = """
 examples:
   # faces (default): recurse ./photos, local VLM captions
-  traincrop -i ./photos -o ./dataset
+  robocrop -i ./photos -o ./dataset
 
-  # a character LoRA: trigger word, tighter framing, JPEG output
-  traincrop -i ./photos -o ./dataset --trigger "my subject" --padding 15 --format jpg
+  # one subject: trigger word, tighter framing, JPEG output
+  robocrop -i ./photos -o ./dataset --trigger "my subject" --padding 15 --format jpg
 
   # crop dogs instead of faces
-  traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=dog
+  robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=dog
 
   # crop multiple classes at once
-  traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=cat,bird
+  robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=cat,bird
 
   # crop whole bodies
-  traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person
+  robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person
 
-  # a body/outfit LoRA that does not learn the face: bodies cropped, faces
+  # learn the body and outfit, not the face: bodies cropped, faces
   # masked out of training (OneTrainer masked training switched on)
-  traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
+  robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
       --mask-faces --training-config
 
   # learn the subject, not the backgrounds the photos were taken against
-  traincrop -i ./photos -o ./dataset --mask-background --training-config
+  robocrop -i ./photos -o ./dataset --mask-background --training-config
 
-  # a character LoRA that does not learn the outfits it was photographed in
-  traincrop -i ./photos -o ./dataset --mask-clothing --training-config
+  # learn the person, not the outfits they were photographed in
+  robocrop -i ./photos -o ./dataset --mask-clothing --training-config
 
   # see what would happen, without writing anything or loading a model
-  traincrop -i ./photos -o ./dataset --dry-run
+  robocrop -i ./photos -o ./dataset --dry-run
 
   # force a single output size and accept smaller objects
-  traincrop -i ./photos -o ./dataset --sizes 768 --min-ratio 0.8
+  robocrop -i ./photos -o ./dataset --sizes 768 --min-ratio 0.8
 
   # crop only, no captions (write .txt files later, or never)
-  traincrop -i ./photos -o ./dataset --captioner none
+  robocrop -i ./photos -o ./dataset --captioner none
 
   # captions only from measured attributes, no model download
-  traincrop -i ./photos -o ./dataset --captioner template
+  robocrop -i ./photos -o ./dataset --captioner template
 
   # caption an already-cropped --output dataset, no re-detection
-  traincrop -o ./dataset --caption-only --captioner vlm
+  robocrop -o ./dataset --caption-only --captioner vlm
 
   # also emit a OneTrainer config for this dataset
-  traincrop -i ./photos -o ./dataset --training-config
+  robocrop -i ./photos -o ./dataset --training-config
 
   # (re)generate just the OneTrainer config for an existing dataset
-  traincrop -o ./dataset --training-config-only
+  robocrop -o ./dataset --training-config-only
 
   # loosen or disable the blur check
-  traincrop -i ./photos -o ./dataset --min-sharpness 5
-  traincrop -i ./photos -o ./dataset --min-sharpness 0
+  robocrop -i ./photos -o ./dataset --min-sharpness 5
+  robocrop -i ./photos -o ./dataset --min-sharpness 0
 
 masks:
   --mask-faces, --mask-background and --mask-clothing write NAME-masklabel.png
@@ -86,7 +86,7 @@ masks:
   matting model) to --background-weight; --mask-clothing drops clothing and
   accessories (found with a clothes parser) to --clothing-weight. Any
   combination. The crop itself is left untouched -- covering the face or the
-  background would teach the LoRA the cover -- and masked training scores
+  background would teach the model the cover -- and masked training scores
   each pixel only as much as its mask allows.
   OneTrainer reads these masks with masked training on, which
   --training-config then enables.
@@ -120,7 +120,7 @@ upscaling:
   The bundled model enlarges 2x per pass, and the most a qualifying crop can
   need is 1/min-ratio times its own size -- so keep --min-ratio above 0.5 to
   stay inside that in one pass. Below it, the remainder past 2x falls back
-  to a plain resize, and traincrop warns about it.
+  to a plain resize, and robocrop warns about it.
 """
 
 
@@ -155,10 +155,11 @@ def _describe_choices(descriptions: dict[str, str], config_field: str) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="traincrop",
+        prog="robocrop",
         description=(
             "Find and crop objects (faces, bodies, animals, or any COCO class) "
-            "square at 512/768/1024, and write a caption beside each crop for LoRA training."
+            "square at 512/768/1024, and write a caption beside each crop, "
+            "ready for training an image model."
         ),
         epilog=EPILOG,
         formatter_class=_Formatter,
@@ -175,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     add(io, "-o", "--output", type=Path, metavar="DIR",
         help=f"directory to write crops and captions into (default: ./{_default('output')})")
     add(io, "--config", type=Path, metavar="FILE",
-        help="TOML file of settings (auto-detected from ./traincrop.toml if it exists); "
+        help="TOML file of settings (auto-detected from ./robocrop.toml if it exists); "
              "command-line flags win over it")
     add(io, "--exclude", action="append", metavar="GLOB",
         help="skip paths matching this glob (repeatable)")
@@ -233,8 +234,8 @@ def build_parser() -> argparse.ArgumentParser:
     mask = parser.add_argument_group("masks")
     add(mask, "--mask-faces", action="store_true",
         help="write a NAME-masklabel.png beside each crop that masks every "
-             "face out of training, for a body/outfit/style LoRA that should "
-             "not learn the face; needs a body detector such as yolox")
+             "face out of training, to learn a body, outfit or style but not "
+             "the face; needs a body detector such as yolox")
     add(mask, "--mask-margin", type=float, metavar="PCT",
         help="percent of the face box added to every side of its mask, to "
              f"cover hair, ears and jaw (default: {_default_pct('mask_margin')})")
@@ -247,17 +248,17 @@ def build_parser() -> argparse.ArgumentParser:
              f"(default: {_default('mask_min_score')})")
     add(mask, "--mask-background", action="store_true",
         help="write a NAME-masklabel.png beside each crop that weights the "
-             "background down, so the LoRA learns the person rather than "
+             "background down, so the model learns the person rather than "
              "where the photos were taken; combines with --mask-faces")
     add(mask, "--background-weight", type=float, metavar="F",
-        help="loss weight of the background, 0-1; a little keeps the LoRA "
+        help="loss weight of the background, 0-1; a little keeps the model "
              f"from drifting there (default: {_default('background_weight')})")
     add(mask, "--mask-clothing", action="store_true",
         help="write a NAME-masklabel.png beside each crop that weights "
-             "clothing and accessories down, so the LoRA learns the person "
+             "clothing and accessories down, so the model learns the person "
              "rather than their outfits; combines with the other masks")
     add(mask, "--clothing-weight", type=float, metavar="F",
-        help="loss weight of clothing, 0-1; raise it a little if the LoRA "
+        help="loss weight of clothing, 0-1; raise it a little if the model "
              f"drifts on clothing (default: {_default('clothing_weight')})")
 
     out = parser.add_argument_group("output files")
@@ -307,7 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
     tc = parser.add_argument_group("training config")
     add(tc, "--training-config", action="store_true",
         help="write training_config.json into the output dir: a copy of "
-             "traincrop.onetrainer.example.json with 'resolution' set to the "
+             "robocrop.onetrainer.example.json with 'resolution' set to the "
              "smallest tier produced and 'epochs' computed from the crop "
              "count (targets ~4000 steps)")
     add(tc, "--training-config-only", action="store_true",
@@ -329,7 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
     add(run, "-v", "--verbose", action="store_true", help="log every crop")
     add(run, "--list-models", action="store_true",
         help="show the caption model presets and exit")
-    parser.add_argument("--version", action="version", version=f"traincrop {__version__}")
+    parser.add_argument("--version", action="version", version=f"robocrop {__version__}")
     return parser
 
 
@@ -393,8 +394,8 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
     settings: dict[str, Any] = {}
     config_path = args.pop("config", None)
     if config_path is None:
-        # Auto-detect traincrop.toml in current directory if --config not passed
-        default_config = Path("traincrop.toml")
+        # Auto-detect robocrop.toml in current directory if --config not passed
+        default_config = Path("robocrop.toml")
         if default_config.is_file():
             config_path = default_config
 

@@ -7,7 +7,7 @@
 python3 --version  # needs 3.11+
 
 # Run it (everything else is automatic)
-./traincrop --input ~/Pictures/portraits --output ./dataset
+./robocrop --input ~/Pictures/portraits --output ./dataset
 
 # That's it. On first run, it will:
 # 1. Create .venv/ locally (nothing system-wide)
@@ -23,7 +23,7 @@ python3 --version  # needs 3.11+
 |-----------|------|-------|------|
 | Python packages (venv) | 1.1 GB | `./.venv/` | First run |
 | Vision-language model | 4.5–7.5 GB | `~/.cache/huggingface/` | First caption run |
-| Detector weights | 50 MB | `~/.cache/traincrop/` | First detection |
+| Detector weights | 50 MB | `~/.cache/robocrop/` | First detection |
 
 **Total disk needed for first run:** ~5.6 GB  
 **After first run:** Already cached, no re-downloads
@@ -34,15 +34,15 @@ Yes. Use the template captioner:
 
 ```bash
 # No model download, instant, offline
-./traincrop -i ./photos -o ./dataset --captioner template
+./robocrop -i ./photos -o ./dataset --captioner template
 
 # OR: Crops only, no captions
-./traincrop -i ./photos -o ./dataset --captioner none
+./robocrop -i ./photos -o ./dataset --captioner none
 ```
 
 Or skip it if already installed:
 ```bash
-TRAINCROP_NO_VLM=1 ./traincrop -i ./photos -o ./dataset
+ROBOCROP_NO_VLM=1 ./robocrop -i ./photos -o ./dataset
 ```
 
 ### Want Sharper Enlarged Crops? (`--upscale`)
@@ -59,7 +59,7 @@ instead, and the two can't both be installed:
 ```
 
 Not required for normal use — leave it out and `--upscale` is simply
-unavailable (`traincrop` will say so if you pass it anyway).
+unavailable (`robocrop` will say so if you pass it anyway).
 
 ## System Requirements
 
@@ -90,7 +90,7 @@ The main cost is the caption model (~4.5 GB, downloaded once to `~/.cache/huggin
 
 Skip it:
 ```bash
-./traincrop -i ./photos -o ./dataset --captioner template
+./robocrop -i ./photos -o ./dataset --captioner template
 ```
 
 ### "Download hangs or fails"
@@ -122,7 +122,7 @@ Not required — only useful if downloads feel slow or you're rate-limited.
 Also harmless, and fixed as of this version — some vision-language model
 configs on Hugging Face (SmolVLM included) carry a stale, mismatched
 `pad_token_id` left over from whatever base checkpoint they were built from.
-`transformers` warns about it at config-load time, but `traincrop` always
+`transformers` warns about it at config-load time, but `robocrop` always
 passes the tokenizer's actual, valid pad token to generation regardless, so
 captions were never affected. The warning itself is now suppressed.
 
@@ -131,19 +131,19 @@ Normal — downloading 4.5 GB and extracting takes a few minutes. After that, ru
 
 Check progress with:
 ```bash
-./traincrop -i ./photos -o ./dataset --dry-run
+./robocrop -i ./photos -o ./dataset --dry-run
 ```
 This runs detection without downloading the caption model.
 
 ## Uninstalling
 
-Everything is in `.venv/`, `~/.cache/traincrop/`, and `~/.cache/huggingface/`. Just delete those:
+Everything is in `.venv/`, `~/.cache/robocrop/`, and `~/.cache/huggingface/`. Just delete those:
 
 ```bash
-rm -rf .venv ~/.cache/traincrop ~/.cache/huggingface/hub/models--*
+rm -rf .venv ~/.cache/robocrop ~/.cache/huggingface/hub/models--*
 ```
 
-The `traincrop` script itself stays wherever you put it.
+The `robocrop` script itself stays wherever you put it.
 
 ## GPU Acceleration
 
@@ -151,5 +151,5 @@ NVIDIA CUDA and Apple Silicon (MPS) are auto-detected. No setup needed — they 
 
 To force CPU-only:
 ```bash
-PYTORCH_ENABLE_MPS_FALLBACK=1 ./traincrop -i ./photos -o ./dataset
+PYTORCH_ENABLE_MPS_FALLBACK=1 ./robocrop -i ./photos -o ./dataset
 ```

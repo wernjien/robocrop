@@ -4,7 +4,7 @@ Handles two model families behind one interface:
 
 * **caption models** (BLIP) - take an image and emit a caption directly.
 * **instruction models** (SmolVLM, Qwen2.5-VL, LLaVA, ...) - take an image plus
-  a prompt, so the caption can be steered toward LoRA-training style.
+  a prompt, so the caption can be steered toward training-caption style.
 
 Weights are downloaded once into the Hugging Face cache and reused offline.
 """
@@ -53,7 +53,7 @@ DEFAULT_PROMPT = (
 )
 """The default instruction sent to instruction-following models (SmolVLM,
 Qwen, LLaVA, ...). It asks for literal, uncensored, tag-style description
-because that is the standard captioning convention for LoRA/embedding
+because that is the standard captioning convention for image-model
 training datasets - including adult ones - and a caption that hedges or
 omits visible content teaches the model the wrong thing just as surely as
 one that is factually wrong.

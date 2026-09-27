@@ -56,11 +56,11 @@ class Config:
     false positive only costs a patch of background."""
     mask_background: bool = False
     """Weight the background down in the same ``-masklabel.png``, using a
-    person matte, so the LoRA learns the subject rather than the places the
+    person matte, so the model learns the subject rather than the places the
     photos were taken. Segments people, so needs a face or person detector."""
     background_weight: float = 0.1
     """Loss weight of the background, 0-1. Not 0 by default: a little weight
-    keeps the LoRA from drifting on the background it is never scored on."""
+    keeps the model from drifting on the background it is never scored on."""
     mask_clothing: bool = False
     """Weight clothing down in the same ``-masklabel.png``: learn the person, not the outfit."""
     clothing_weight: float = 0.0
@@ -235,8 +235,8 @@ def load_toml(path: Path) -> dict[str, Any]:
     with path.open("rb") as handle:
         raw = tomllib.load(handle)
 
-    # Accept both a flat file and one nested under [traincrop].
-    data = raw.get("traincrop", raw) if isinstance(raw, dict) else {}
+    # Accept both a flat file and one nested under [robocrop].
+    data = raw.get("robocrop", raw) if isinstance(raw, dict) else {}
     known = {f.name for f in fields(Config)}
     out: dict[str, Any] = {}
     unknown: list[str] = []
