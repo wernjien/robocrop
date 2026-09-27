@@ -111,20 +111,20 @@ def _face_mask(size: int, faces: Sequence[Rect], margin: float) -> Image.Image:
         return mask
 
     draw = ImageDraw.Draw(mask)
-    feather = 0.0
+    # One blur for the whole mask, sized to the largest face. Every ellipse
+    # is grown by that same radius, so the blur's falloff sits outside each
+    # intended ellipse and everything inside stays solid -- a bystander's
+    # small face included, which a per-face radius would leave half grey.
+    radius = 0.08 * max(max(box.w, box.h) for box in faces)
     for box in faces:
         side = max(box.w, box.h)
         half_w = box.w / 2.0 + margin * side
         half_h = box.h / 2.0 + margin * side
         cx, cy = box.cx, box.cy - _LIFT * box.h
-        # Grow by the feather radius before blurring, so the blur's falloff
-        # sits outside the intended ellipse and everything inside stays solid.
-        radius = 0.08 * side
-        feather = max(feather, radius)
         draw.ellipse(
             (cx - half_w - radius, cy - half_h - radius,
              cx + half_w + radius, cy + half_h + radius),
             fill=0,
         )
 
-    return mask.filter(ImageFilter.GaussianBlur(feather / 2.0)) if feather >= 1 else mask
+    return mask.filter(ImageFilter.GaussianBlur(radius / 2.0)) if radius >= 1 else mask

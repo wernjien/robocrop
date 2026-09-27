@@ -130,6 +130,19 @@ class Config:
             problems.append("--edge must be shift, extend or skip")
         if self.fill not in ("edge", "blur", "reflect", "color"):
             problems.append("--fill must be edge, blur, reflect or color")
+        for name in ("workers", "limit", "max_per_image", "start_index", "caption_max_chars"):
+            if getattr(self, name) < 0:
+                # A negative --limit or --max-per-image would slice from the
+                # end and silently drop the last photos or detections.
+                problems.append(f"--{name.replace('_', '-')} cannot be negative")
+        if self.caption_batch < 1:
+            problems.append("--caption-batch must be at least 1")
+        if self.caption_tokens < 1:
+            problems.append("--caption-tokens must be at least 1")
+        if self.captioner == "template" and self.caption_template:
+            problem = _check_template(self.caption_template)
+            if problem:
+                problems.append(problem)
         if self.mask_margin < 0:
             problems.append("--mask-margin cannot be negative")
         if self.mask_missing not in ("skip", "keep"):
@@ -182,6 +195,24 @@ class Config:
             elif isinstance(value, tuple):
                 out[key] = list(value)
         return out
+
+
+def _check_template(template: str) -> str:
+    """Why a --caption-template would fail, or "" if it is fine.
+
+    Checked up front: otherwise a typo surfaces only in the caption pass,
+    after every photo has already been cropped.
+    """
+    from .captioners.template import TOKENS
+
+    try:
+        template.format(**{token: "" for token in TOKENS})
+    except KeyError as exc:
+        return (f"--caption-template has an unknown token {exc}; "
+                f"available: {', '.join(sorted(TOKENS))}")
+    except (IndexError, ValueError) as exc:
+        return f"--caption-template is not a valid format string: {exc}"
+    return ""
 
 
 #: Fields that are tuples in the dataclass but lists in TOML.

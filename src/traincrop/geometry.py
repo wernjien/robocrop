@@ -177,7 +177,7 @@ def plan_crop(
     if tier is None:
         smallest = min(sizes)
         raise CropRejected(
-            f"face is {base_side:.0f}px, needs >={min_ratio * smallest:.0f}px "
+            f"detection is {base_side:.0f}px, needs >={min_ratio * smallest:.0f}px "
             f"for the {smallest} tier",
             base_side,
             min_ratio * smallest,

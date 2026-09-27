@@ -101,3 +101,39 @@ def test_caption_only_and_training_config_only_are_exclusive():
     cfg = Config(caption_only=True, training_config_only=True)
     with pytest.raises(ValueError):
         cfg.validate()
+
+
+# -- config checks ------------------------------------------------------------
+@pytest.mark.parametrize("field", ["limit", "max_per_image", "workers", "start_index"])
+def test_negative_counts_are_rejected(field):
+    with pytest.raises(ValueError, match="cannot be negative"):
+        Config(**{field: -1}).validate()
+
+
+@pytest.mark.parametrize("template, message", [
+    ("{shot}, {mood}", "unknown token"),
+    ("{shot}, {}", "not a valid format string"),
+    ("{shot", "not a valid format string"),
+])
+def test_a_bad_caption_template_is_caught_before_cropping(template, message):
+    with pytest.raises(ValueError, match=message):
+        Config(captioner="template", caption_template=template).validate()
+
+
+def test_every_template_token_is_filled():
+    from traincrop.captioners.template import TOKENS, TemplateCaptioner
+    from traincrop.captioners.base import CaptionRequest
+    from traincrop.detectors.base import Region
+    from traincrop.geometry import Rect
+
+    captioner = TemplateCaptioner(" ".join("{%s}" % t for t in TOKENS))
+    request = CaptionRequest(Image.new("RGB", (64, 64)), "a.png", Region(Rect(0, 0, 8, 8), 0.9), 512, 1)
+    assert captioner.caption(request)
+
+
+def test_output_cannot_be_the_input(tmp_path, monkeypatch):
+    from traincrop.cli import build_config
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="different directory"):
+        build_config(["-i", str(tmp_path), "-o", str(tmp_path)])

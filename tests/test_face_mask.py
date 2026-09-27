@@ -258,3 +258,11 @@ def test_mask_margin_in_toml_is_a_percentage(tmp_path, monkeypatch):
     cfg = build_config(["-i", str(tmp_path), "--config", str(toml)])
 
     assert cfg.mask_margin == pytest.approx(0.2)
+
+
+def test_a_small_face_beside_a_large_one_is_still_fully_masked():
+    """One blur covers the whole mask; the small face's oval must survive it."""
+    mask = build_mask(1024, [Rect(100, 100, 300, 300), Rect(700, 300, 30, 30)], margin=0.35)
+
+    assert mask.getpixel((250, 250)) == 0
+    assert mask.getpixel((715, 315)) == 0

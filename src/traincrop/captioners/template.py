@@ -15,6 +15,9 @@ from .base import BaseCaptioner, CaptionRequest
 
 DEFAULT_TEMPLATE = "{shot}, {pose}, {light}, {tone}"
 
+#: Every token a template may use.
+TOKENS = ("shot", "pose", "light", "tone", "label", "tier", "index", "source")
+
 
 class TemplateCaptioner(BaseCaptioner):
     name = "template"

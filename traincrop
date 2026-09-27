@@ -23,9 +23,13 @@ here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 venv="${TRAINCROP_VENV:-$here/.venv}"
 python_bin="${TRAINCROP_PYTHON:-python3}"
 py="$venv/bin/python"
-# Bumped whenever requirements change, so existing installs re-sync once.
+# Derived from the requirements files themselves, so editing one re-syncs
+# existing installs once -- no version to remember to bump by hand.
 stamp_file="$venv/.traincrop-deps"
-stamp="v1:$( [ "${TRAINCROP_NO_VLM:-0}" = "1" ] && echo core || echo full )"
+mode="$( [ "${TRAINCROP_NO_VLM:-0}" = "1" ] && echo core || echo full )"
+reqs=("$here/requirements.txt")
+[ "$mode" = "full" ] && reqs+=("$here/requirements-caption.txt")
+stamp="v2:$mode:$(cat "${reqs[@]}" 2>/dev/null | cksum | tr -s ' ' '-')"
 
 die() { printf 'traincrop: %s\n' "$1" >&2; exit 1; }
 

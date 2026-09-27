@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -113,6 +115,11 @@ class _Crop:
     masked_faces: int = 0
     background: str | None = None
 
+    def close(self) -> None:
+        self.image.close()
+        if self.mask is not None:
+            self.mask.close()
+
 
 @dataclass
 class _ImageResult:
@@ -134,6 +141,8 @@ class Pipeline:
         self.stats = Stats()
         self.records: list[CropRecord] = []
         self.skips: list[SkipRecord] = []
+        self._resuming = False
+        """True once an existing manifest is being continued with --resume."""
         self._carried: list[str] = []
         """Verbatim manifest lines from the run being resumed. The caption
         pass rewrites the manifest, and this run only holds its own records,
@@ -203,6 +212,11 @@ class Pipeline:
             cfg.input,
             exclude=cfg.exclude,
             follow_symlinks=cfg.follow_symlinks,
+            # With the output inside the input (the defaults: . and
+            # ./dataset), earlier crops would otherwise be re-cropped -- this
+            # run's output, and any other traincrop dataset under the input.
+            skip_dirs=(cfg.output,),
+            skip_marker=MANIFEST_NAME,
         ))
         if cfg.limit:
             paths = paths[: cfg.limit]
@@ -229,7 +243,9 @@ class Pipeline:
         if not cfg.dry_run:
             self._write_summary()
             if cfg.training_config:
-                self._write_training_config(masked=cfg.writes_masks)
+                # From the manifest, not this run's records: on --resume the
+                # dataset is every run's crops, not just the latest batch.
+                self._write_training_config(self._read_manifest_records())
 
         self.stats.seconds = time.monotonic() - started
         return self.stats
@@ -247,6 +263,8 @@ class Pipeline:
                     self.stats.errors += 1
                     self.skips.append(SkipRecord(str(result.source), "error", result.error))
                     self._emit("warn", f"{result.source}: {result.error}")
+                    for item in result.crops:
+                        item.close()
                     continue
 
                 self.stats.detections += result.detections
@@ -320,9 +338,7 @@ class Pipeline:
                             f"[{region.label} {region.score:.2f}] "
                             f"base={plan.base_side:.0f}px tier={plan.tier}",
                         )
-                    crop.close()
-                    if item.mask is not None:
-                        item.mask.close()
+                    item.close()
 
                 if not cfg.quiet and not cfg.verbose and self.stats.scanned % 25 == 0:
                     self._emit(
@@ -338,13 +354,21 @@ class Pipeline:
     def _process_image(self, path: Path) -> _ImageResult:
         cfg = self.cfg
         result = _ImageResult(source=path)
+
+        # Outside the per-image error handling on purpose: a model that will
+        # not download or load is the run's problem, not this image's, and
+        # must stop the run once rather than fail every image in turn.
+        detector = self._detector()
+        if cfg.mask_faces:
+            self._face_detector()
+        if cfg.mask_background:
+            self._segmenter()
+
         try:
             image = images.load_image(path)
         except Exception as exc:  # noqa: BLE001
             result.error = f"could not read image: {exc}"
             return result
-
-        detector = self._detector()
         # An explicit --offset-y wins; otherwise the detector says how its own
         # boxes need recentring.
         offset_y = (
@@ -458,9 +482,13 @@ class Pipeline:
         return True
 
     # -- pass 2 -----------------------------------------------------------
-    def _caption_pass(self) -> None:
+    def _caption_pass(self, pending: list[CropRecord] | None = None) -> None:
+        """Caption ``pending`` (default: every record of this run), then
+        rewrite the manifest with all of ``self.records``."""
         cfg = self.cfg
-        pending = [r for r in self.records if r.caption_file]
+        if pending is None:
+            pending = self.records
+        pending = [r for r in pending if r.caption_file]
         if not pending:
             return
 
@@ -478,7 +506,7 @@ class Pipeline:
                 chunk = pending[start : start + batch]
                 requests, live = [], []
                 for record in chunk:
-                    path = cfg.output / record.image_file
+                    path = self._output_path(record.image_file)
                     try:
                         image = Image.open(path)
                         image.load()
@@ -504,7 +532,7 @@ class Pipeline:
                 for (record, image), text in zip(live, texts):
                     record.caption = text
                     if text:
-                        (cfg.output / record.caption_file).write_text(
+                        self._output_path(record.caption_file).write_text(
                             text + "\n", encoding="utf-8"
                         )
                         self.stats.captioned += 1
@@ -583,24 +611,23 @@ class Pipeline:
         for record in self.records:
             record.caption_file = str(Path(record.image_file).with_suffix(".txt"))
 
+        pending = self.records
         if cfg.resume:
-            before = len(self.records)
-            self.records = [
+            pending = [
                 r for r in self.records
-                if not (cfg.output / r.caption_file).exists()
+                if not self._output_path(r.caption_file).exists()
             ]
-            self.stats.skipped_existing = before - len(self.records)
+            self.stats.skipped_existing = len(self.records) - len(pending)
 
-        self.stats.scanned = self.stats.written = len(self.records)
-        self.stats.by_tier = {}
-        for record in self.records:
-            self.stats.by_tier[record.tier] = self.stats.by_tier.get(record.tier, 0) + 1
+        self.stats.scanned = self.stats.written = len(pending)
+        self.stats.by_tier = dict(Counter(r.tier for r in pending))
 
-        if not cfg.dry_run and self.records:
-            # _caption_pass rewrites manifest.jsonl itself; manifest.json is
-            # left alone so its crop-time stats (detections, skips, ...) from
-            # the original run are not clobbered by this partial one.
-            self._caption_pass()
+        if not cfg.dry_run and pending:
+            # _caption_pass rewrites manifest.jsonl with every record, not
+            # only the ones captioned now; manifest.json is left alone so its
+            # crop-time stats (detections, skips, ...) from the original run
+            # are not clobbered by this partial one.
+            self._caption_pass(pending)
 
     def _training_config_only_run(self) -> None:
         """(Re)generate training_config.json for an existing --output dataset,
@@ -609,36 +636,31 @@ class Pipeline:
         records = self._load_manifest_records()
 
         self.stats.scanned = self.stats.written = len(records)
-        for record in records:
-            self.stats.by_tier[record.tier] = self.stats.by_tier.get(record.tier, 0) + 1
+        self.stats.by_tier = dict(Counter(r.tier for r in records))
 
-        if not cfg.dry_run and records:
-            self._write_training_config(
-                masked=cfg.writes_masks or any(r.mask_file for r in records)
-            )
+        if not cfg.dry_run:
+            self._write_training_config(records)
 
     def _load_manifest_records(self) -> list[CropRecord]:
-        cfg = self.cfg
-        manifest = cfg.output / MANIFEST_NAME
+        """Every record in the output's manifest; raises when there are none."""
+        manifest = self.cfg.output / MANIFEST_NAME
         if not manifest.exists():
             raise FileExistsError(
                 f"{manifest} not found; run traincrop without --caption-only / "
                 f"--training-config-only first to produce a dataset"
             )
-        known = {f.name for f in fields(CropRecord)}
-        records: list[CropRecord] = []
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # tolerate a torn final line from an interrupted run
-            records.append(CropRecord(**{k: v for k, v in row.items() if k in known}))
+        records = self._read_manifest_records()
         if not records:
             raise FileExistsError(f"{manifest} has no crop records")
         return records
+
+    def _read_manifest_records(self) -> list[CropRecord]:
+        """Every record in the output's manifest, or [] if there is none."""
+        known = {f.name for f in fields(CropRecord)}
+        return [
+            CropRecord(**{k: v for k, v in row.items() if k in known})
+            for row in _read_rows(self.cfg.output / MANIFEST_NAME)
+        ]
 
     # -- output helpers ---------------------------------------------------
     def _image_name(self, index: int, tier: int) -> str:
@@ -652,17 +674,40 @@ class Pipeline:
         stem = f"{cfg.prefix}{index:0{cfg.digits}d}"
         return f"{tier}/{stem}.txt" if cfg.per_size_dirs else f"{stem}.txt"
 
-    def _save(self, crop: Image.Image, record: CropRecord) -> None:
+    def _output_path(self, relative: str) -> Path:
+        """``relative`` inside --output, refusing anything that escapes it.
+
+        Paths come from manifest.jsonl, and a manifest can be edited or come
+        with a downloaded dataset: a row naming ``../../x`` must not get
+        this tool to write, or on --overwrite delete, outside the dataset.
+        """
+        root = self.cfg.output.resolve()
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError(f"manifest path {relative!r} points outside {self.cfg.output}")
+        return path
+
+    def _claim(self, relative: str) -> Path:
+        """Where to write a new output file, checking it is free to take."""
         cfg = self.cfg
-        target = cfg.output / record.image_file
+        target = self._output_path(relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and not cfg.overwrite:
-            # Numbering is derived from the manifest, so a collision means the
-            # output folder holds files this run did not account for.
+        # Numbering is derived from the manifest, so a collision means the
+        # output folder holds files this run did not account for. When a
+        # manifest is being resumed, that is an orphan: a run interrupted
+        # after saving a crop but before writing its manifest row. It is safe
+        # to replace -- but not on a bare --resume into a folder that has no
+        # manifest, where the file is someone else's.
+        if target.exists() and not (cfg.overwrite or self._resuming):
             raise FileExistsError(
                 f"{target} already exists; use --overwrite, --resume, "
                 f"or an empty output directory"
             )
+        return target
+
+    def _save(self, crop: Image.Image, record: CropRecord) -> None:
+        cfg = self.cfg
+        target = self._claim(record.image_file)
         if cfg.extension == "jpg":
             crop.save(target, "JPEG", quality=cfg.quality, subsampling=0, optimize=True)
         elif cfg.extension == "webp":
@@ -671,13 +716,7 @@ class Pipeline:
             crop.save(target, "PNG", compress_level=6)
 
     def _save_mask(self, mask: Image.Image, record: CropRecord) -> None:
-        target = self.cfg.output / record.mask_file
-        if target.exists() and not self.cfg.overwrite:
-            raise FileExistsError(
-                f"{target} already exists; use --overwrite, --resume, "
-                f"or an empty output directory"
-            )
-        mask.save(target, "PNG", compress_level=6)
+        mask.save(self._claim(record.mask_file), "PNG", compress_level=6)
 
     # -- manifest ---------------------------------------------------------
     def _resume_state(self) -> tuple[set[str], int]:
@@ -688,10 +727,12 @@ class Pipeline:
             return set(), cfg.start_index
         if not cfg.resume:
             if cfg.overwrite:
-                # Start the manifest afresh; appending to the old one would
-                # leave rows describing files this run has replaced.
+                # Start afresh. The old run's files go too: this run may make
+                # fewer crops, and a leftover 0042.png -- or a leftover
+                # 0001.txt now beside a different 0001.png -- would still be
+                # trained on.
                 if not cfg.dry_run:
-                    manifest.unlink()
+                    self._remove_previous_run(manifest)
                 return set(), cfg.start_index
             if cfg.dry_run:
                 return set(), cfg.start_index
@@ -701,21 +742,84 @@ class Pipeline:
                 f"or choose a different --output."
             )
 
+        self._resuming = True
         done: set[str] = set()
         highest = cfg.start_index - 1
-        for line in manifest.read_text(encoding="utf-8").splitlines():
+        text = manifest.read_text(encoding="utf-8")
+        torn = False
+        for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
-                continue  # tolerate a torn final line from an interrupted run
+                torn = True  # the torn final line of an interrupted run
+                continue
             if "source" in row:
                 done.add(row["source"])
             highest = max(highest, int(row.get("index", highest)))
             self._carried.append(line)
+
+        # Appending after a torn or unterminated last line would glue the
+        # next row onto it and lose that row too, so start from clean rows.
+        if (torn or (text and not text.endswith("\n"))) and not cfg.dry_run:
+            self._write_manifest(self._carried)
         return done, highest + 1
+
+    def _remove_previous_run(self, manifest: Path) -> None:
+        """Delete the files an earlier run's manifest recorded, then the manifest."""
+        removed = 0
+        for row in _read_rows(manifest):
+            image_file = row.get("image_file")
+            if not image_file:
+                continue
+            # Captions and masks by their derived names as well as the
+            # recorded ones: a caption-only run or an older manifest may not
+            # have recorded them.
+            names = {
+                image_file,
+                str(Path(image_file).with_suffix(".txt")),
+                masks.mask_name(image_file),
+                row.get("caption_file") or "",
+                row.get("mask_file") or "",
+            }
+            for name in filter(None, names):
+                try:
+                    path = self._output_path(name)
+                except ValueError:
+                    continue  # never delete outside the output directory
+                if path.is_file():
+                    path.unlink()
+                    removed += 1
+        manifest.unlink()
+        if removed:
+            self._emit("info", f"--overwrite: removed {removed} file(s) from the previous run")
+        if (self.cfg.output / TRAINING_CONFIG_NAME).exists() and not self.cfg.training_config:
+            # Kept, since it may carry hand edits -- but it describes the old
+            # dataset (resolution, epochs, masked training) until regenerated.
+            self._emit(
+                "warn",
+                f"{TRAINING_CONFIG_NAME} still describes the previous run; "
+                "add --training-config, or run --training-config-only afterwards",
+            )
+
+    def _write_manifest(self, lines: Iterable[str]) -> None:
+        """Replace manifest.jsonl atomically.
+
+        It is the only record of what the dataset holds, so it must never be
+        left half-written by an interruption: write a sibling, then rename.
+        """
+        path = self.cfg.output / MANIFEST_NAME
+        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".manifest-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                for line in lines:
+                    handle.write(line + "\n")
+            os.replace(tmp_name, path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
 
     def _rewrite_manifest(self) -> None:
         """Re-emit the manifest once captions exist, so rows are complete.
@@ -723,12 +827,10 @@ class Pipeline:
         Rows carried over from a resumed run are written back first, in their
         original order, ahead of this run's records.
         """
-        path = self.cfg.output / MANIFEST_NAME
-        with path.open("w", encoding="utf-8") as handle:
-            for line in self._carried:
-                handle.write(line + "\n")
-            for record in self.records:
-                handle.write(json.dumps(asdict(record)) + "\n")
+        self._write_manifest([
+            *self._carried,
+            *(json.dumps(asdict(record)) for record in self.records),
+        ])
 
     def _write_summary(self) -> None:
         cfg = self.cfg
@@ -745,8 +847,9 @@ class Pipeline:
             json.dumps(summary, indent=2) + "\n", encoding="utf-8"
         )
 
-    def _write_training_config(self, *, masked: bool = False) -> None:
-        """Fill a copy of the bundled OneTrainer template from this run's stats.
+    def _write_training_config(self, records: Sequence[CropRecord]) -> None:
+        """Fill a copy of the bundled OneTrainer template from ``records``,
+        which is every crop in the dataset -- all runs of it, not the last.
 
         Only ``resolution`` and ``epochs`` are dataset-derived; everything else
         is copied verbatim. ``resolution`` is pinned to the *smallest* tier
@@ -762,7 +865,7 @@ class Pipeline:
         unmasked image one step in ten, which would teach the face after
         all, and floor every pixel at 0.1, which would override the mask.
         """
-        if not self.stats.by_tier:
+        if not records:
             return
         try:
             template = json.loads(ONETRAINER_TEMPLATE_PATH.read_text(encoding="utf-8"))
@@ -770,14 +873,24 @@ class Pipeline:
             self._emit("warn", f"could not read {ONETRAINER_TEMPLATE_PATH.name}: {exc}")
             return
 
-        smallest_tier = min(self.stats.by_tier)
+        smallest_tier = min(r.tier for r in records)
         template["resolution"] = str(smallest_tier)
 
         batch_size = template.get("batch_size") or 1
         target_steps = 4000
-        epochs = target_steps * batch_size / self.stats.written
+        epochs = target_steps * batch_size / len(records)
         template["epochs"] = int(round(min(300, max(10, epochs))))
 
+        unmasked = sum(1 for r in records if not r.mask_file)
+        masked = unmasked < len(records)
+        if masked and unmasked:
+            # Typically a --resume that added or dropped a --mask-* flag.
+            self._emit(
+                "warn",
+                f"{unmasked} of {len(records)} crops have no mask file; with "
+                "masked training on, re-crop them with the same --mask-* "
+                "flags as the rest",
+            )
         if masked:
             template["masked_training"] = True
             template["unmasked_probability"] = 0.0
@@ -823,6 +936,20 @@ def _default_workers() -> int:
     return max(1, min(8, os.cpu_count() or 4))
 
 
+def _read_rows(path: Path) -> Iterator[dict[str, Any]]:
+    """The JSON rows of a manifest, skipping a torn final line."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            yield json.loads(line)
+        except json.JSONDecodeError:
+            continue  # tolerate a torn final line from an interrupted run
+
+
 def _ordered_map(
     fn: Callable[[Path], _ImageResult],
     items: Sequence[Path],
@@ -841,7 +968,7 @@ def _ordered_map(
         return
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        pending: list = []
+        pending: deque = deque()
         source = iter(items)
         lookahead = workers * 2
 
@@ -849,7 +976,7 @@ def _ordered_map(
             pending.append(pool.submit(fn, item))
 
         while pending:
-            yield pending.pop(0).result()
+            yield pending.popleft().result()
             for item in _take(source, 1):
                 pending.append(pool.submit(fn, item))
 

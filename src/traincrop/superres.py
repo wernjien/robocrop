@@ -8,6 +8,8 @@ use -- so it is only imported when actually requested.
 
 from __future__ import annotations
 
+import threading
+
 import cv2
 import numpy as np
 
@@ -17,13 +19,15 @@ from . import models
 #: beyond this in one pass; anything past it is corrected by a final resize.
 FACTOR = 2
 
-_engine = None
+#: One engine per crop worker. An OpenCV DNN net is not safe to run from two
+#: threads at once, and the crop pass calls this from several.
+_local = threading.local()
 
 
 def _get_engine():
-    global _engine
-    if _engine is not None:
-        return _engine
+    engine = getattr(_local, "engine", None)
+    if engine is not None:
+        return engine
     if not hasattr(cv2, "dnn_superres"):
         raise RuntimeError(
             "--upscale needs the dnn_superres module, which plain opencv-python "
@@ -34,8 +38,8 @@ def _get_engine():
     engine = cv2.dnn_superres.DnnSuperResImpl_create()
     engine.readModel(str(path))
     engine.setModel("fsrcnn", FACTOR)
-    _engine = engine
-    return _engine
+    _local.engine = engine
+    return engine
 
 
 def upscale(bgr: np.ndarray) -> np.ndarray:

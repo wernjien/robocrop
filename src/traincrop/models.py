@@ -3,51 +3,79 @@
 Detector weights are a few hundred kilobytes each and are not shipped with
 OpenCV 5 or MediaPipe 1.x, so they are fetched on first use into
 ``~/.cache/traincrop/models`` (override with ``TRAINCROP_CACHE``).
+
+Every file is checked against a pinned SHA-256 before it is cached, so a
+truncated download, an HTML error page, or a file swapped upstream is
+refused rather than loaded into OpenCV.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 _OPENCV_ZOO = "https://github.com/opencv/opencv_zoo/raw/main/models"
 _OPENCV_DATA = "https://raw.githubusercontent.com/opencv/opencv/4.x/data"
 _FSRCNN = "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models"
-_MODNET = "https://huggingface.co/Xenova/modnet/resolve/main/onnx"
+# Pinned to a commit rather than main, so the file cannot change under us.
+_MODNET = "https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx"
 
-#: Logical name -> (url, minimum plausible size in bytes).
-#: The size acts as a cheap integrity check: an HTML error page or a truncated
-#: download is far smaller than the real weights and must not be cached.
-REGISTRY: dict[str, tuple[str, int]] = {
-    "yunet": (
+
+class Model(NamedTuple):
+    url: str
+    sha256: str
+    filename: str = ""
+    """Cache filename, when the URL's own ends in something too generic to
+    share a cache directory with (Hugging Face exports are all model.onnx)."""
+
+    @property
+    def cache_name(self) -> str:
+        return self.filename or Path(self.url).name
+
+
+REGISTRY: dict[str, Model] = {
+    "yunet": Model(
         f"{_OPENCV_ZOO}/face_detection_yunet/face_detection_yunet_2023mar.onnx",
-        200_000,
+        "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
     ),
-    "haar_frontalface": (
+    "haar_frontalface": Model(
         f"{_OPENCV_DATA}/haarcascades/haarcascade_frontalface_default.xml",
-        500_000,
+        "0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0",
     ),
-    "haar_profileface": (
+    "haar_profileface": Model(
         f"{_OPENCV_DATA}/haarcascades/haarcascade_profileface.xml",
-        400_000,
+        "b39a4a3be45539db146a7fc1d3e761a292c196eb88421185e6a615b3055e612d",
     ),
-    "yolox": (
+    "yolox": Model(
         f"{_OPENCV_ZOO}/object_detection_yolox/object_detection_yolox_2022nov.onnx",
-        20_000_000,
+        "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
     ),
-    "fsrcnn_x2": (f"{_FSRCNN}/FSRCNN_x2.pb", 30_000),
-    "modnet": (f"{_MODNET}/model.onnx", 20_000_000),
+    "fsrcnn_x2": Model(
+        f"{_FSRCNN}/FSRCNN_x2.pb",
+        "366b33f0084c7b3f2bf6724f0a2c77bca94fcec9d7b6d72389d330073b380d5c",
+    ),
+    "modnet": Model(
+        f"{_MODNET}/model.onnx",
+        "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9",
+        "modnet_photographic_portrait_matting.onnx",
+    ),
 }
 
-#: Cache filenames for models whose URL ends in something too generic to
-#: share a cache directory with (Hugging Face exports are all model.onnx).
-_CACHE_NAMES: dict[str, str] = {
-    "modnet": "modnet_photographic_portrait_matting.onnx",
-}
+#: Serialises downloads. Every crop worker builds its own detector on first
+#: use, so on a first run eight threads would otherwise fetch the same 35 MB
+#: file at once; with the lock, one downloads and the rest find it cached.
+_download_lock = threading.Lock()
+
+#: Files already checksummed in this process, so each is hashed once per run
+#: rather than once per worker thread.
+_verified: set[Path] = set()
 
 
 class ModelUnavailable(RuntimeError):
@@ -65,14 +93,21 @@ def cache_dir() -> Path:
 def ensure(name: str, *, quiet: bool = False) -> Path:
     """Return a local path to ``name``, downloading it if necessary."""
     try:
-        url, min_bytes = REGISTRY[name]
+        model = REGISTRY[name]
     except KeyError:
         raise ModelUnavailable(f"unknown model {name!r}") from None
 
-    target = cache_dir() / _CACHE_NAMES.get(name, Path(url).name)
-    if target.exists() and target.stat().st_size >= min_bytes:
-        return target
+    target = cache_dir() / model.cache_name
+    with _download_lock:
+        if target in _verified:
+            return target
+        if not (target.exists() and _sha256(target) == model.sha256):
+            _download(name, model, target, quiet=quiet)
+        _verified.add(target)
+    return target
 
+
+def _download(name: str, model: Model, target: Path, *, quiet: bool) -> None:
     if not quiet:
         print(f"  fetching model {name} ({target.name}) ...", flush=True)
 
@@ -82,19 +117,26 @@ def ensure(name: str, *, quiet: bool = False) -> Path:
     os.close(fd)
     tmp = Path(tmp_name)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "traincrop"})
+        req = urllib.request.Request(model.url, headers={"User-Agent": "traincrop"})
         with urllib.request.urlopen(req, timeout=60) as resp, tmp.open("wb") as out:
             shutil.copyfileobj(resp, out)
-        size = tmp.stat().st_size
-        if size < min_bytes:
+        digest = _sha256(tmp)
+        if digest != model.sha256:
             raise ModelUnavailable(
-                f"download for {name!r} was only {size} bytes "
-                f"(expected >= {min_bytes}); check your network or proxy"
+                f"download for {name!r} failed its checksum ({tmp.stat().st_size} "
+                f"bytes, sha256 {digest[:12]}...); check your network or proxy"
             )
         tmp.replace(target)
-    except urllib.error.URLError as exc:
-        raise ModelUnavailable(f"could not download {name!r} from {url}: {exc}") from exc
+    except OSError as exc:
+        # URLError, but also timeouts and resets mid-transfer, which are not.
+        raise ModelUnavailable(f"could not download {name!r} from {model.url}: {exc}") from exc
     finally:
         tmp.unlink(missing_ok=True)
 
-    return target
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()

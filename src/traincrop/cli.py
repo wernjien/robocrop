@@ -307,7 +307,8 @@ def build_parser() -> argparse.ArgumentParser:
     add(run, "-j", "--workers", type=int, metavar="N",
         help="threads for the detect/crop pass (0 = auto)")
     add(run, "-n", "--dry-run", action="store_true",
-        help="report what would be produced; writes nothing, loads no model")
+        help="report what would be produced; writes nothing and loads no "
+             "caption model (detection models still run, to report real results)")
     add(run, "--resume", action="store_true",
         help="continue a previous run, skipping sources already in the manifest")
     add(run, "--overwrite", action="store_true",
@@ -426,8 +427,13 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
         config.validate()
     except ValueError as exc:
         raise SystemExit(str(exc))
-    if not (config.caption_only or config.training_config_only) and not config.input.is_dir():
-        raise SystemExit(f"input directory not found: {config.input}")
+    if not (config.caption_only or config.training_config_only):
+        if not config.input.is_dir():
+            raise SystemExit(f"input directory not found: {config.input}")
+        if config.input.resolve() == config.output.resolve():
+            # Crops would land among the photos and be cropped again next run.
+            # (An output *inside* the input is fine: the scan skips it.)
+            raise SystemExit("--output must be a different directory from --input")
     return config
 
 
@@ -526,7 +532,8 @@ def _summarise(config: Config, stats, emit) -> None:
         lines.append(f"skipped          {stats.skipped_existing} already done (resume)")
     if stats.errors:
         lines.append(f"errors           {stats.errors} (see manifest.json)")
-    if config.training_config and not config.dry_run and stats.written:
+    if config.training_config and (config.output / TRAINING_CONFIG_NAME).exists():
+        # Checked on disk: a --resume with nothing new still writes it.
         lines.append(f"training config  {config.output / TRAINING_CONFIG_NAME}")
     if not config.dry_run and stats.written:
         lines.append(f"\noutput           {config.output}")

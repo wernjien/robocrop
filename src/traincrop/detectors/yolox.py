@@ -116,9 +116,12 @@ class YoloxDetector(BaseDetector):
         sizes = boxes_wh / ratio
         rects = np.concatenate([tl, sizes], axis=1)
 
-        indices = cv2.dnn.NMSBoxes(
+        # Per class: a cat on a person's lap overlaps them heavily, and
+        # class-blind suppression would throw one of the two away.
+        indices = cv2.dnn.NMSBoxesBatched(
             rects.tolist(),
             confidences.astype(float).tolist(),
+            class_ids.astype(int).tolist(),
             float(self.min_score),
             float(self.nms_threshold),
         )
@@ -172,7 +175,10 @@ def _letterbox(image: np.ndarray) -> tuple[np.ndarray, float]:
     new_h, new_w = max(1, int(h * ratio)), max(1, int(w * ratio))
 
     canvas = np.full((_INPUT, _INPUT, 3), _PAD_VALUE, dtype=np.float32)
-    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    # INTER_AREA when shrinking: a 40 MP photo is reduced ~10x here, and a
+    # linear resize would sample a fraction of the pixels and alias badly.
+    interpolation = cv2.INTER_AREA if ratio < 1 else cv2.INTER_LINEAR
+    resized = cv2.resize(image, (new_w, new_h), interpolation=interpolation)
     # The model was trained on RGB; OpenCV hands us BGR.
     canvas[:new_h, :new_w] = resized[:, :, ::-1].astype(np.float32)
 

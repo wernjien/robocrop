@@ -92,7 +92,7 @@ Nothing is installed system-wide — everything is local to this directory.
 | What | Size | Location |
 |---|---|---|
 | `.venv/` (Python packages) | 1.1 GB | This directory |
-| `~/.cache/traincrop/` (detector weights) | ~50 MB | Your home directory |
+| `~/.cache/traincrop/` (detector and mask weights) | ~40–65 MB | Your home directory |
 | `~/.cache/huggingface/` (caption model) | 4.5–7.5 GB | Your home directory |
 | Output dataset | ~2–5 MB per 1000 crops | `--output` directory |
 
@@ -417,9 +417,19 @@ Interrupt a long run and pick it up where it stopped:
 ```
 
 Sources already recorded in `manifest.jsonl` are skipped and numbering carries
-on without gaps. Pointing a fresh run at a non-empty output directory is
-refused rather than silently mixed, unless you pass `--resume` or
-`--overwrite`.
+on without gaps. A run killed mid-crop resumes cleanly: a half-written
+manifest row, or a crop saved just before the interruption, is replaced
+rather than tripping over.
+
+Pointing a fresh run at a non-empty output directory is refused rather than
+silently mixed, unless you pass `--resume` or `--overwrite`. `--overwrite`
+removes the crops, captions and masks the previous run's manifest lists
+before starting, so a smaller new run can't leave old files behind for the
+trainer to pick up; files it never made are left alone.
+
+An output directory inside the input one is fine — the scan never enters it,
+or any other folder holding a traincrop `manifest.jsonl`, and never treats
+`-masklabel.png` files as photos.
 
 ## Generating a OneTrainer config
 
@@ -493,6 +503,8 @@ on the original run. Like `--caption-only`, it only reads `--output`.
 -j, --workers N         threads for the detect/crop pass
 -n, --dry-run           report only, write nothing
 -v, --verbose           log every crop
+    --mask-faces        mask every face out of training (body/outfit LoRAs)
+    --mask-background   weight the background down, keep the person
     --training-config       write a filled-in OneTrainer config alongside the crops
     --training-config-only  write it for an existing --output dataset, nothing else
 ```
@@ -537,7 +549,7 @@ Command-line flags always win over the config file, so you can tune a single set
 - **Upscale model** (FSRCNN: ~40 KB, only with `--upscale`) — downloaded once, cached alongside the detector weights
 - **Matting model** (MODNet: 26 MB, only with `--mask-background`) — downloaded once, cached alongside the detector weights
 - **Caption model** (SmolVLM by default: 4.5 GB) — downloaded once, cached in Hugging Face's cache (`~/.cache/huggingface/`), fully offline after first download
-- Model downloads resume on interruption; partial files are never cached
+- Every model file is checked against a pinned SHA-256 before it is cached; an interrupted or corrupted download is discarded and fetched again on the next run
 
 **GPU support:** NVIDIA CUDA and Apple Silicon (MPS) are auto-detected and used if available. CPU is fine too.
 
