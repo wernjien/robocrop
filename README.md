@@ -1,8 +1,9 @@
 # TrainCrop
 
 Walks a folder of photos (including every subfolder), detects and crops objects
-of interest square at 512 / 768 / 1024, and writes a caption next to each crop
-for LoRA training. Works with faces, bodies, animals, or any COCO object class.
+of interest square at 512 / 768 / 1024, and writes a caption next to each crop,
+ready for training or fine-tuning an image model. Works with faces, bodies,
+animals, or any COCO object class.
 
 The output directory holds one image + caption pair per crop, plus two
 manifests summarizing the run:
@@ -27,12 +28,16 @@ dataset/
 # Crop whole bodies
 ./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person
 
-# Crop whole bodies for a body/outfit/style LoRA that does not learn the face
+# Crop whole bodies, with faces masked out of training (learn the body, not the identity)
 ./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
     --mask-faces --training-config
 
 # Learn the subject, not the backgrounds the photos were taken against
 ./traincrop -i ~/Pictures/portraits -o ./dataset --mask-background --training-config
+
+# Both: learn the body and outfit, but neither the face nor the background
+./traincrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person \
+    --mask-faces --mask-background --training-config
 
 # Crop dogs
 ./traincrop -i ~/Pictures/dogs -o ./dataset --detector yolox --detector-opt classes=dog
@@ -210,8 +215,8 @@ anywhere afterwards.
           blue t shirt over denim jacket, soft natural light, white wall
 ```
 
-The trigger word always comes first — that is the token your LoRA binds the
-subject to. Everything after it describes what *varies* between shots, which is
+The trigger word always comes first — that is the token the trained model
+binds the subject to. Everything after it describes what *varies* between shots, which is
 what you want the model to learn as changeable.
 
 | `--caption-model` | Size | Notes |
@@ -333,13 +338,13 @@ To detect objects not in COCO (80 classes), you can add your own detector. Drop 
 `Region` objects, and add one line to `_BACKENDS` in that package's `__init__.py`.
 Nothing else changes.
 
-## Body LoRAs without the face
+## Training without the face
 
-For a body, outfit or style LoRA meant to be used with *other* faces, the
-subject's face in the training images is a problem: the LoRA learns it along
+When the goal is a body, outfit or style that works with *other* faces, the
+subject's face in the training images is a problem: the model learns it along
 with everything else, and pulls every generation towards that person.
 
-Covering the face (a blur, a white box) makes it worse — the LoRA learns
+Covering the face (a blur, a white box) makes it worse — the model learns
 that this subject has a blob for a face. `--mask-faces` leaves the face alone
 in the image and writes a mask beside each crop instead:
 
@@ -353,15 +358,16 @@ dataset/0001.png             the crop, untouched
 dataset/0001-masklabel.png   white = learn, soft black oval over each face
 ```
 
-With masked training, the trainer scores its output only on the white area,
-so the face is seen as context but never learned. The masks follow
-OneTrainer's `-masklabel.png` naming, and `--training-config` switches
-`masked_training` on with `unmasked_probability` and `unmasked_weight` at 0
-(OneTrainer's defaults would still train on the whole image one step in
-ten). Other trainers that take loss masks work too, pointed at these files.
+With masked (loss-weighted) training, the trainer scores its output only on
+the white area, so the face is seen as context but never learned. The masks
+are plain greyscale PNGs named `NAME-masklabel.png`, the convention OneTrainer
+reads directly; trainers with a different layout just need them moved or
+renamed (kohya's sd-scripts, for one, reads masks from a separate folder under
+the same filenames). `--training-config` switches masking on in the generated
+config — see [Generating a OneTrainer config](#generating-a-onetrainer-config).
 
 - **Every face in a crop is masked**, not just the subject's — a bystander's
-  face is identity the LoRA should not learn either.
+  face is identity the model should not learn either.
 - **`--mask-margin`** (default 35) is the percent of the face box added to
   each side of the oval, so hair, ears and jaw are covered as well.
 - **`--mask-missing`** decides what happens when no face is found in a crop
@@ -379,7 +385,7 @@ the oval — so keep the trigger word and captions about the body and outfit.
 
 ## Masking the background
 
-Photos from the same shoot share a backdrop, and a LoRA trained on them
+Photos from the same shoot share a backdrop, and a model trained on them
 learns that backdrop along with the subject: generations drift towards the
 same studio wall or bedroom. `--mask-background` weights the background
 down in the same `-masklabel.png`:
@@ -391,7 +397,7 @@ down in the same `-masklabel.png`:
 A person matting model ([MODNet](https://github.com/ZHKKKe/MODNet), 26 MB,
 downloaded on first use) outlines the person in each crop, hair included.
 The person stays white; everything else drops to `--background-weight`
-(default 0.1). Not 0 by default — a little weight keeps the LoRA from
+(default 0.1). Not 0 by default — a little weight keeps the model from
 drifting on a background it is never scored on; `--background-weight 0`
 ignores it completely.
 
@@ -401,11 +407,18 @@ ignores it completely.
 - **When no outline is found**, the detection box stands in for it, and the
   summary counts these (`background_mask: "box"` in `manifest.jsonl`).
 - **It combines with `--mask-faces`** into one mask: body 1, background 0.1,
-  face 0. OneTrainer multiplies the loss by the mask's grey level, so all
-  three weights come through from a single file.
+  face 0. Masked training multiplies each pixel's loss by the mask's grey
+  level, so all three weights come through from a single file (check that
+  your trainer reads masks as weights rather than thresholding them to
+  black and white):
 
-It works with face crops as well as body crops — a character LoRA that
-learns the person but not the room. It segments people, so it is refused
+  ```bash
+  ./traincrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person \
+      --mask-faces --mask-background --training-config
+  ```
+
+It works with face crops as well as body crops — to learn a person without
+the room they were photographed in. It segments people, so it is refused
 with a YOLOX class list that doesn't include `person`.
 
 ## Resuming
@@ -444,6 +457,11 @@ that file is yours to hand-edit for your own base model, LoRA rank,
 optimizer, and so on — there is no separate override flag, the bundled file
 *is* the template.
 
+The bundled template is set up for LoRA training. For a full fine-tune, set
+`training_method` to `FINE_TUNE` and lower `learning_rate` well below the
+LoRA default of `1e-4` — and expect to want a larger, more varied dataset
+than the ~4000-step target below was sized for.
+
 The fields that get overwritten:
 
 - **`resolution`** — set to the smallest output tier that appears anywhere in
@@ -458,7 +476,7 @@ The fields that get overwritten:
   epoch count.
 - **`masked_training`**, **`unmasked_probability`**, **`unmasked_weight`** —
   only when the dataset has masks (see
-  [Body LoRAs without the face](#body-loras-without-the-face) and
+  [Training without the face](#training-without-the-face) and
   [Masking the background](#masking-the-background)): masked training on,
   with no whole-image steps and no weight floor, so every pixel is weighted
   exactly as its mask says. OneTrainer's `unmasked_weight` is a floor under
@@ -503,7 +521,7 @@ on the original run. Like `--caption-only`, it only reads `--output`.
 -j, --workers N         threads for the detect/crop pass
 -n, --dry-run           report only, write nothing
 -v, --verbose           log every crop
-    --mask-faces        mask every face out of training (body/outfit LoRAs)
+    --mask-faces        mask every face out of training (learn body/outfit, not identity)
     --mask-background   weight the background down, keep the person
     --training-config       write a filled-in OneTrainer config alongside the crops
     --training-config-only  write it for an existing --output dataset, nothing else
@@ -540,7 +558,7 @@ Command-line flags always win over the config file, so you can tune a single set
 ## System Information
 
 **Python:** Requires 3.11 or newer.  
-**Platform:** macOS (Apple Silicon & Intel), Linux, Windows (untested but should work).
+**Platform:** macOS (Apple Silicon), Linux, Windows.
 
 **Image formats:** Reads JPEG, PNG, WebP, TIFF, BMP, GIF, and **HEIC/HEIF/AVIF** (iPhone photos). EXIF rotation is applied before detection, so sideways-stored photos are detected and cropped upright.
 
