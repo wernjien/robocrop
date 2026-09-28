@@ -107,8 +107,9 @@ padding:
 blur check:
   --min-sharpness scores the central portion of each resized crop with a
   Laplacian-variance blur heuristic (higher is sharper) and drops crops that
-  fall below it. Every crop's score is recorded in manifest.jsonl either way,
-  kept or dropped, so the default can be tuned from real data. 0 disables it.
+  fall below it. Kept crops record their score in manifest.jsonl and dropped
+  ones in manifest.json, so the default can be tuned from real data. 0
+  disables it.
 
 upscaling:
   A crop smaller than its tier is enlarged either way; --upscale only changes

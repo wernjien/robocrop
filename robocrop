@@ -6,10 +6,11 @@
 # adds a few milliseconds and no network traffic.
 #
 #   ./robocrop --input ~/Pictures/portraits --output ./dataset
+#   ./robocrop --setup      install everything, check it loads, and exit
 #
 # Environment:
 #   ROBOCROP_VENV      virtualenv location (default: <script dir>/.venv)
-#   ROBOCROP_PYTHON    interpreter used to build it (default: python3)
+#   ROBOCROP_PYTHON    interpreter used to build it (default: python, then python3)
 #   ROBOCROP_NO_VLM=1  skip the captioning dependencies (torch, transformers)
 #   ROBOCROP_SKIP_SYNC=1  never touch pip, even if something looks missing
 #
@@ -21,7 +22,11 @@ set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 venv="${ROBOCROP_VENV:-$here/.venv}"
-python_bin="${ROBOCROP_PYTHON:-python3}"
+if [ -n "${ROBOCROP_PYTHON:-}" ]; then
+  candidates=("$ROBOCROP_PYTHON")
+else
+  candidates=(python python3)
+fi
 py="$venv/bin/python"
 # Derived from the requirements files themselves, so editing one re-syncs
 # existing installs once -- no version to remember to bump by hand.
@@ -34,12 +39,16 @@ stamp="v2:$mode:$(cat "${reqs[@]}" 2>/dev/null | cksum | tr -s ' ' '-')"
 die() { printf 'robocrop: %s\n' "$1" >&2; exit 1; }
 
 if [ ! -x "$py" ]; then
-  command -v "$python_bin" >/dev/null 2>&1 \
-    || die "no '$python_bin' on PATH; install Python 3.11+ or set ROBOCROP_PYTHON"
-
-  version="$("$python_bin" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-  "$python_bin" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
-    || die "Python 3.11 or newer is required (found $version)"
+  python_bin=""
+  for candidate in "${candidates[@]}"; do
+    if command -v "$candidate" >/dev/null 2>&1 \
+      && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+      python_bin="$candidate"
+      break
+    fi
+  done
+  [ -n "$python_bin" ] \
+    || die "Python 3.11 or newer is required (tried: ${candidates[*]}); install it or set ROBOCROP_PYTHON"
 
   printf 'robocrop: creating virtualenv in %s (first run only)\n' "$venv" >&2
   "$python_bin" -m venv "$venv" || die "could not create a virtualenv at $venv"
@@ -56,6 +65,13 @@ if [ "${ROBOCROP_SKIP_SYNC:-0}" != "1" ] && [ "$(cat "$stamp_file" 2>/dev/null |
       || die "caption dependency install failed; re-run with ROBOCROP_NO_VLM=1 to skip it"
   fi
   printf '%s' "$stamp" > "$stamp_file"
+fi
+
+if [ "${1:-}" = "--setup" ]; then
+  "$py" -c 'import cv2, numpy, PIL' \
+    || die "the libraries installed but don't load; see the error above"
+  printf 'robocrop: setup complete\n' >&2
+  exit 0
 fi
 
 export PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}"

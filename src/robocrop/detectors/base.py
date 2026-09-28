@@ -74,8 +74,9 @@ class BaseDetector:
     lifting. A whole-body box has no such bias and wants no shift.
     """
 
-    def __init__(self, min_score: float = 0.6) -> None:
+    def __init__(self, min_score: float = 0.6, *, quiet: bool = False) -> None:
         self.min_score = min_score
+        self.quiet = quiet
 
     def detect(self, image: np.ndarray) -> list[Region]:  # pragma: no cover
         raise NotImplementedError

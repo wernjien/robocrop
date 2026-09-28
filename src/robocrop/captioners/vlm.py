@@ -62,10 +62,9 @@ This is a prompt instruction, not a jailbreak: it cannot override safety
 training baked into a model's weights. General chat-tuned VLMs (all of the
 presets below) retain some of that tuning regardless of what they are asked,
 and may still hedge, refuse, or soften explicit description on some images.
-If you need reliably explicit tag captions, see the NSFW captioning note in
-README.md for the actual limitation and the community-standard alternative
-(a booru-style tagger, e.g. WD14/DeepDanbooru, trained specifically on
-explicit tags and with no chat safety tuning to work around)."""
+If you need reliably explicit tag captions, use a booru-style tagger
+(e.g. WD14/DeepDanbooru) instead: it is trained specifically on explicit
+tags and has no chat safety tuning to work around."""
 
 
 def resolve_model(name: str) -> str:

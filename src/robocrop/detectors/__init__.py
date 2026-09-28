@@ -3,7 +3,7 @@
 Backends are imported lazily: MediaPipe costs a couple of seconds to import
 and torch-based backends far more, so nothing is loaded until it is asked for.
 To add a detector, write a module exposing a :class:`~.base.BaseDetector`
-subclass and add one line to ``_BACKENDS``.
+subclass and add a line for it to ``_BACKENDS`` and ``DESCRIPTIONS``.
 """
 
 from __future__ import annotations

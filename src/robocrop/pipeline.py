@@ -265,7 +265,9 @@ class Pipeline:
     def _crop_pass(self, paths: Sequence[Path], next_index: int) -> None:
         cfg = self.cfg
         workers = cfg.workers or _default_workers()
-        manifest = None if cfg.dry_run else (cfg.output / MANIFEST_NAME).open("a", encoding="utf-8")
+        manifest_path = cfg.output / MANIFEST_NAME
+        created = not cfg.dry_run and not manifest_path.exists()
+        manifest = None if cfg.dry_run else manifest_path.open("a", encoding="utf-8")
 
         try:
             for result in _ordered_map(self._process_image, paths, workers):
@@ -363,6 +365,9 @@ class Pipeline:
         finally:
             if manifest is not None:
                 manifest.close()
+                # Left empty, it would make the next run refuse this folder.
+                if created and manifest_path.stat().st_size == 0:
+                    manifest_path.unlink()
             self._close_detectors()
 
     def _process_image(self, path: Path) -> _ImageResult:
@@ -888,6 +893,7 @@ class Pipeline:
         all, and floor every pixel at 0.1, which would override the mask.
         """
         if not records:
+            self._emit("warn", "no crops in the dataset, so no training config was written")
             return
         try:
             template = json.loads(ONETRAINER_TEMPLATE_PATH.read_text(encoding="utf-8"))
