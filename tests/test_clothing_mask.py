@@ -39,6 +39,9 @@ class StubParser:
     def matte(self, image):
         return self._matte
 
+    def face_matte(self, image):
+        return np.zeros(image.shape[:2], dtype=np.float32)  # no face found: the oval stands in
+
     def close(self):
         pass
 
@@ -83,7 +86,7 @@ class StubNet:
 
 def test_parser_sums_the_clothing_classes_into_one_matte():
     parser = ClothingSegmenter.__new__(ClothingSegmenter)
-    parser._net = StubNet()
+    parser._net, parser._cached = StubNet(), None
 
     matte = parser.matte(np.zeros((300, 200, 3), dtype=np.uint8))
 
@@ -179,10 +182,10 @@ def test_clothing_only_runs_neither_face_detector_nor_matting(tmp_path, stubs, p
     assert segmenter["created"] == 0
 
 
-def test_no_parser_without_mask_clothing(tmp_path, stubs, parser):
+def test_no_parser_without_clothing_or_outline_face_masks(tmp_path, stubs, parser):
     make_photo(tmp_path / "photos" / "a.png")
 
-    Pipeline(base_config(tmp_path, mask_faces=True)).run()
+    Pipeline(base_config(tmp_path, mask_faces=True, face_mask="oval")).run()
 
     assert parser["created"] == 0
     assert row(tmp_path)["masked_clothing"] == 0.0

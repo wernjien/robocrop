@@ -44,6 +44,7 @@ def stubs(monkeypatch):
 
 
 def masked_config(tmp_path, **overrides):
+    overrides.setdefault("face_mask", "oval")  # the outline needs the parser; see test_face_outline
     return base_config(tmp_path, mask_faces=True, **overrides)
 
 

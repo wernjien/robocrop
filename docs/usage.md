@@ -203,6 +203,7 @@ The output folder can be inside the input folder, because the scan skips it.
 -t, --trigger WORD      word placed first in every caption
     --caption-only      caption an existing dataset without cropping again
     --mask-faces        mask faces out of training
+    --face-mask SHAPE   outline (the face's own shape) or oval (default outline)
     --mask-background   weight the background down
     --mask-clothing     mask clothing out of training
     --mask-dir DIR      put the masks in DIR, for ai-toolkit and kohya

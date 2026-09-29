@@ -392,7 +392,7 @@ class Pipeline:
             self._face_detector()
         if cfg.mask_background:
             self._segmenter()
-        if cfg.mask_clothing:
+        if cfg.mask_clothing or (cfg.mask_faces and cfg.face_mask == "outline"):
             self._clothing_segmenter()
 
         try:
@@ -521,6 +521,10 @@ class Pipeline:
             for other in people[1:]:
                 person = np.maximum(person, other)
 
+        face_matte, ovals = None, [f.rect for f in faces]
+        if ovals and cfg.face_mask == "outline":
+            face_matte, ovals = masks.face_outline(self._clothing_segmenter().face_matte(bgr), ovals)
+
         garments = None
         if cfg.mask_clothing:
             garments = self._clothing_segmenter().matte(bgr)
@@ -530,9 +534,10 @@ class Pipeline:
         # else is masked: with masked training on, a missing mask file does
         # not mean "learn everything" in every trainer.
         item.mask = masks.build_mask(
-            item.image.size, [f.rect for f in faces], cfg.mask_margin,
+            item.image.size, ovals, cfg.mask_margin,
             person=person, background=cfg.background_weight,
             clothing=garments, clothing_weight=cfg.clothing_weight,
+            face=face_matte,
         )
         item.masked_faces = len(faces)
         return True

@@ -88,6 +88,7 @@ def build_mask(
     background: float = 0.1,
     clothing: np.ndarray | None = None,
     clothing_weight: float = 0.0,
+    face: np.ndarray | None = None,
 ) -> Image.Image:
     """A greyscale mask, ``size`` square or (width, height): white where the crop is learned.
 
@@ -95,7 +96,8 @@ def build_mask(
     drops to the ``background`` weight and the person stays white, blending
     along the matte's soft edge. Without it, the whole crop starts white.
     With ``clothing`` (a matte of the same shape), clothing drops to
-    ``clothing_weight`` the same way.
+    ``clothing_weight`` the same way, and with ``face`` (a face matte, see
+    :func:`face_outline`) the face drops to 0 along its own outline.
 
     Each face then becomes a black ellipse around its box, grown by
     ``margin`` of the box side on every side so hair, ears and jaw are
@@ -104,7 +106,7 @@ def build_mask(
     eats into the surroundings rather than the other way round.
     """
     faces_mask = _face_mask(size, faces, margin)
-    if person is None and clothing is None:
+    if person is None and clothing is None and face is None:
         return faces_mask
 
     weights = np.asarray(faces_mask, dtype=np.float32) / 255.0
@@ -112,7 +114,38 @@ def build_mask(
         weights = np.minimum(weights, background + (1.0 - background) * np.clip(person, 0.0, 1.0))
     if clothing is not None:
         weights = np.minimum(weights, 1.0 - (1.0 - clothing_weight) * np.clip(clothing, 0.0, 1.0))
+    if face is not None:
+        weights = np.minimum(weights, 1.0 - np.clip(face, 0.0, 1.0))
     return Image.fromarray(np.round(weights * 255.0).astype(np.uint8))
+
+
+def face_outline(
+    matte: np.ndarray, faces: Sequence[Rect], *, reach: float = 0.4, min_cover: float = 0.15
+) -> tuple[np.ndarray, list[Rect]]:
+    """The parser's face pixels near each detected face, and the faces it missed.
+
+    Only pixels within ``reach`` of a face box (a fraction of its side) are
+    kept. A face the parser covers less than ``min_cover`` of is returned
+    instead, for the caller to mask with an oval.
+    """
+    h, w = matte.shape
+    outline = np.zeros_like(matte)
+    missed: list[Rect] = []
+    for box in faces:
+        grow = reach * max(box.w, box.h)
+        x0, y0 = max(0, int(box.x - grow)), max(0, int(box.y - grow))
+        x1, y1 = min(w, int(np.ceil(box.x2 + grow))), min(h, int(np.ceil(box.y2 + grow)))
+        part = matte[y0:y1, x0:x1]
+        if (part >= 0.5).sum() < min_cover * box.w * box.h:
+            missed.append(box)
+            continue
+        # Firm up the parser's soft guess: drop the faint haze over hair, and
+        # fill eyes and mouth, which it is less sure are face.
+        part = np.clip((part - 0.3) / 0.4, 0.0, 1.0)
+        k = max(3, int(0.08 * max(box.w, box.h)) | 1)
+        part = cv2.morphologyEx(part, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+        outline[y0:y1, x0:x1] = np.maximum(outline[y0:y1, x0:x1], part)
+    return outline, missed
 
 
 def _dims(size: int | tuple[int, int]) -> tuple[int, int]:

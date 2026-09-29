@@ -55,7 +55,9 @@ class Config:
     """Write a ``-masklabel.png`` beside each crop that blacks out every face
     in it, so masked training learns body, outfit and style but not identity.
     Needs a body/object detector; a face detector's crops would be all mask."""
-    mask_margin: float = 0.35   # fraction of the face box added to EACH side
+    face_mask: str = "outline"
+    """outline: the face's own shape, from the clothes parser | oval: an ellipse over the head."""
+    mask_margin: float = 0.35   # fraction of the face box added to EACH side, for oval masks
     mask_missing: str = "skip"  # skip | keep -- a crop where no face was found
     mask_min_score: float = 0.5
     """Lower than min_score on purpose: a missed face is learned, while a
@@ -158,6 +160,8 @@ class Config:
                 problems.append(problem)
         if self.mask_margin < 0:
             problems.append("--mask-margin cannot be negative")
+        if self.face_mask not in ("outline", "oval"):
+            problems.append("--face-mask must be outline or oval")
         if self.mask_missing not in ("skip", "keep"):
             problems.append("--mask-missing must be skip or keep")
         if not 0 <= self.mask_min_score <= 1:

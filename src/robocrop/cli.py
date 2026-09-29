@@ -81,7 +81,7 @@ examples:
 masks:
   --mask-faces, --mask-background and --mask-clothing write NAME-masklabel.png
   beside each crop: a greyscale loss weight per pixel, white where the trainer
-  should learn. --mask-faces puts a soft black oval over every face;
+  should learn. --mask-faces blacks out every face along its outline;
   --mask-background drops everything but the person (found with a person
   matting model) to --background-weight; --mask-clothing drops clothing and
   accessories (found with a clothes parser) to --clothing-weight. Any
@@ -250,9 +250,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="write a NAME-masklabel.png beside each crop that masks every "
              "face out of training, to learn a body, outfit or style but not "
              "the face; needs a body detector such as yolox, or --no-crop")
+    add(mask, "--face-mask", choices=("outline", "oval"),
+        help="shape of the face mask: the face's own outline, found with the "
+             "clothes parser, or an oval over the whole head "
+             f"(default: {_default('face_mask')})")
     add(mask, "--mask-margin", type=float, metavar="PCT",
-        help="percent of the face box added to every side of its mask, to "
-             f"cover hair, ears and jaw (default: {_default_pct('mask_margin')})")
+        help="with --face-mask oval, percent of the face box added to every side "
+             f"of the oval, to cover hair, ears and jaw (default: {_default_pct('mask_margin')})")
     add(mask, "--mask-missing", choices=("skip", "keep"),
         help="crops where no face was found (back of the head, strong "
              "profile, face out of frame): skip them, or keep them with "

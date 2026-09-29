@@ -52,16 +52,20 @@ be combined with `--mask-dir`.
 ## Masking faces
 
 `--mask-faces` lets a model learn a body, outfit or style without the person's
-identity. Every face in each crop gets a soft black oval. The image itself is
-left alone, because blurring or covering the face would teach the model a blob
-for a face.
+identity. Every face in each crop is masked black along its own outline, found
+with the clothes parser (a 110 MB download the first time); the hair stays
+learned. The image itself is left alone, because blurring or covering the face
+would teach the model a blob for a face.
 
 ```bash
 ./robocrop -i ./photos -o ./dataset --detector yolox --detector-opt classes=person --mask-faces --training-config
 ```
 
+- `--face-mask oval` masks an oval over the whole head instead, hair and ears
+  included. A face the parser can't find, such as a strong profile, gets the
+  oval either way.
 - `--mask-margin` (default 35) is the percentage of the face box added around
-  the oval, so that the hair, ears and jaw are covered.
+  the oval.
 - `--mask-missing` (default `skip`) drops crops where no face is found, since
   an unmasked face would be learned. `keep` keeps them unmasked.
 - `--mask-min-score` (default 0.5) is the face confidence needed to mask a

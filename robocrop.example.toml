@@ -79,7 +79,10 @@ fill      = "blur"
 # out of training. Needs a body detector (detector = "yolox" above).
 # mask_faces     = true
 
-# percent of the face box added to every side of its mask
+# outline: the face's own shape | oval: an oval over the whole head
+# face_mask      = "outline"
+
+# percent of the face box added to every side of an oval mask
 # mask_margin    = 35
 
 # a crop where no face was found: skip | keep

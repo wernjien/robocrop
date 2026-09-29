@@ -136,7 +136,7 @@ def test_faces_and_background_combine_in_one_mask(tmp_path, stubs, segmenter):
     faces._current = [head(462, 150, side=60)]
     make_photo(tmp_path / "photos" / "a.png")
 
-    stats = Pipeline(bg_config(tmp_path, mask_faces=True)).run()
+    stats = Pipeline(bg_config(tmp_path, mask_faces=True, face_mask="oval")).run()
 
     assert stats.masked == 1 and stats.background_masked == 1
     mask = mask_of(tmp_path)
@@ -159,7 +159,7 @@ def test_background_only_does_not_run_the_face_detector(tmp_path, stubs, segment
 def test_no_segmenter_without_mask_background(tmp_path, stubs, segmenter):
     make_photo(tmp_path / "photos" / "a.png")
 
-    Pipeline(base_config(tmp_path, mask_faces=True)).run()
+    Pipeline(base_config(tmp_path, mask_faces=True, face_mask="oval")).run()
 
     assert segmenter["created"] == 0
     assert row(tmp_path)["background_mask"] is None
