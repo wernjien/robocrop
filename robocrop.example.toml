@@ -34,7 +34,7 @@ sizes     = [512, 768, 1024]
 # no_crop = true
 
 # or keep each photo at its native size: skip photos shorter than min_side,
-# and cut those longer than max_side to a window around the subject
+# and shrink those longer than max_side to it
 # keep_size = true
 # min_side  = 256
 # max_side  = 1536

@@ -31,12 +31,11 @@ class Config:
     sizes: tuple[int, ...] = (512, 768, 1024)
     min_ratio: float = 0.80
     no_crop: bool = False
+    """Keep each whole photo, shape kept and long side resized to a size, rather than cropping it."""
     keep_size: bool = False
-    """Keep each photo at its native size and shape, or a window of it around the
-    subject when longer than max_side; never resized."""
+    """Keep each whole photo at its native size and shape, shrunk to max_side when longer."""
     min_side: int = 256
     max_side: int = 1536
-    """Keep each whole photo, shape kept and long side resized to a size, rather than cropping it."""
     base_mode: BaseSideMode = "max"
     offset_x: float = 0.0
     offset_y: float | None = None

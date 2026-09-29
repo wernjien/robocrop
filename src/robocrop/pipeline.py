@@ -433,7 +433,7 @@ class Pipeline:
                 try:
                     if cfg.keep_size:
                         plan = plan_native(
-                            image.width, image.height, boxes,
+                            image.width, image.height,
                             min_side=cfg.min_side, max_side=cfg.max_side,
                         )
                     elif cfg.no_crop:

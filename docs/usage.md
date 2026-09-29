@@ -58,12 +58,11 @@ subject.
 
 ## Keeping native size
 
-`--keep-size` keeps each photo at its own size and shape, without resizing it:
+`--keep-size` keeps each whole photo at its own size and shape:
 
 - a photo whose long side is between `--min-side` (default 256) and
-  `--max-side` (default 1536) is kept whole
-- a larger photo is cut to a full-resolution window of its own shape, no longer
-  than `--max-side`, centred on the people detected in it
+  `--max-side` (default 1536) is kept as it is
+- a larger photo is shrunk so its long side is `--max-side`
 - a smaller photo is skipped
 
 ```bash
@@ -195,7 +194,7 @@ The output folder can be inside the input folder, because the scan skips it.
     --min-sharpness F   drop crops below this sharpness, 0 to disable (default 10)
     --upscale           enlarge small crops with AI upscaling
     --no-crop           keep whole photos, resized, instead of cropping
-    --keep-size         keep photos at native size, cut down past --max-side
+    --keep-size         keep photos at native size, shrunk past --max-side
 -f, --format FMT        png, jpg or webp (default png)
     --per-size-dirs     write into 512/, 768/ and 1024/ subfolders
 -d, --detector NAME     yunet, haar or yolox (default yunet)

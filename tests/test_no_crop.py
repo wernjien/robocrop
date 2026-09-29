@@ -96,16 +96,14 @@ def test_keep_size_leaves_a_photo_in_range_untouched(tmp_path, stub):
     assert Image.open(tmp_path / "out" / "0001.png").size == (1200, 900)
 
 
-def test_keep_size_cuts_a_full_resolution_window_around_the_subject(tmp_path, stub):
+def test_keep_size_shrinks_a_photo_over_the_maximum_whole(tmp_path, stub):
     stub._current = [Region(rect=Rect(3200, 1000, 400, 800), score=0.9, label="person")]
     make_photo(tmp_path / "photos" / "a.png", size=(4000, 3000))
 
     Pipeline(base_config(tmp_path, keep_size=True)).run()
 
     assert Image.open(tmp_path / "out" / "0001.png").size == (1536, 1152)
-    x, y, w, h = rows(tmp_path)[0]["crop"]
-    assert (w, h) == (1536.0, 1152.0)
-    assert x <= 3200 and x + w >= 3600 and x + w <= 4000   # the subject is inside
+    assert rows(tmp_path)[0]["crop"] == [0.0, 0.0, 4000.0, 3000.0]
 
 
 def test_keep_size_skips_a_photo_under_the_minimum(tmp_path, stub):

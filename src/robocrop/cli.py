@@ -207,13 +207,13 @@ def build_parser() -> argparse.ArgumentParser:
              "and its long side resized to the largest --sizes value it reaches; "
              "photos with no detection are still skipped")
     add(crop, "--keep-size", action="store_true",
-        help="keep each photo at its own size and shape, never resized; a photo "
-             "longer than --max-side is cut to a window of it around the subject, "
-             "and one shorter than --min-side is skipped")
+        help="keep each whole photo at its own size and shape; a photo longer "
+             "than --max-side is shrunk to it, and one shorter than --min-side "
+             "is skipped")
     add(crop, "--min-side", type=int, metavar="PX",
         help=f"with --keep-size, skip photos shorter than this on their long side (default: {_default('min_side')})")
     add(crop, "--max-side", type=int, metavar="PX",
-        help=f"with --keep-size, the longest side kept before cutting a window (default: {_default('max_side')})")
+        help=f"with --keep-size, shrink photos longer than this on their long side to it (default: {_default('max_side')})")
     add(crop, "-p", "--padding", type=float, metavar="PCT",
         help=f"percent of the detection added to every side (default: {_default_pct('padding')})")
     add(crop, "-s", "--sizes", metavar="LIST",
