@@ -83,6 +83,8 @@ This creates a private environment in `robocrop/.venv` and downloads about
 1 GB of libraries (several GB on Linux). It can look stuck for up to 15
 minutes. It's done when it prints `robocrop: setup complete`.
 
+It also creates `robocrop.toml`, your [settings file](docs/usage.md#settings-file).
+
 ### 4. Try it
 
 Put a few photos of a person in `~/Pictures/test-photos`, then run:
@@ -103,7 +105,9 @@ If something goes wrong, see [Troubleshooting](docs/install.md#troubleshooting).
 
 ## Usage
 
-Run RoboCrop from the `robocrop` folder:
+Run RoboCrop from the `robocrop` folder. Every run loads `robocrop.toml`, so
+settings you always want can go there instead of on the command line (see
+[Settings file](docs/usage.md#settings-file)). Flags win over the file.
 
 ```bash
 # Crop faces
@@ -134,7 +138,8 @@ git pull
 ```
 
 That's all. The next run installs any new libraries by itself, and your
-`robocrop.toml` and datasets are left alone. If you set up
+`robocrop.toml` and datasets are left alone. New settings appear in
+`robocrop.example.toml`; copy any you want into `robocrop.toml`. If you set up
 [`--upscale`](docs/usage.md#crop-size), repeat its two install commands
 afterwards.
 

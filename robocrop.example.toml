@@ -1,8 +1,10 @@
-# robocrop configuration.
+# robocrop settings.
 #
-#   ./robocrop --config robocrop.example.toml
+# ./robocrop --setup copies robocrop.example.toml to robocrop.toml, which
+# every run from this folder loads. Edit robocrop.toml; git pull updates the
+# example, so new settings show up there.
 #
-# Apart from input, the values shown are the defaults. Keys match the
+# Apart from input, the example's values are the defaults. Keys match the
 # command-line flags with dashes turned into underscores, except `multi`
 # (--multi-face) and `detector_opts` (--detector-opt). Anything you also pass
 # on the command line wins.

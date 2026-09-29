@@ -5,17 +5,12 @@ On Windows, type `.\robocrop.cmd` wherever this guide says `./robocrop`.
 
 ## Settings file
 
-To keep your settings in a file rather than typing them each time, copy the
-example:
-
-```bash
-cp robocrop.example.toml robocrop.toml
-```
-
-Set `input`, `output` and anything else you want in `robocrop.toml`, and then
-run just `./robocrop`. It loads `robocrop.toml` from the current folder. Flags
-on the command line win over the file, and `--config other.toml` loads a
-different file.
+`./robocrop --setup` creates `robocrop.toml`, a copy of
+`robocrop.example.toml`, if it doesn't exist yet. Running it again never
+overwrites your edits. Set `input`, `output` and anything else you want in it,
+and then run just `./robocrop`. It loads `robocrop.toml` from the current
+folder. Flags on the command line win over the file, and `--config other.toml`
+loads a different file.
 
 Keys are the flag names with dashes turned into underscores, except `multi`
 (`--multi-face`) and `detector_opts` (`--detector-opt`). `robocrop.toml` is

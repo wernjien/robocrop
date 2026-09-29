@@ -6,7 +6,8 @@
 # adds a few milliseconds and no network traffic.
 #
 #   ./robocrop --input ~/Pictures/portraits --output ./dataset
-#   ./robocrop --setup      install everything, check it loads, and exit
+#   ./robocrop --setup      install everything, check it loads, create
+#                           robocrop.toml if it's missing, and exit
 #
 # Environment:
 #   ROBOCROP_VENV      virtualenv location (default: <script dir>/.venv)
@@ -70,6 +71,11 @@ fi
 if [ "${1:-}" = "--setup" ]; then
   "$py" -c 'import cv2, numpy, PIL' \
     || die "the libraries installed but don't load; see the error above"
+  if [ ! -f "$here/robocrop.toml" ]; then
+    cp "$here/robocrop.example.toml" "$here/robocrop.toml" \
+      || die "could not create $here/robocrop.toml"
+    printf 'robocrop: created robocrop.toml, your settings file\n' >&2
+  fi
   printf 'robocrop: setup complete\n' >&2
   exit 0
 fi

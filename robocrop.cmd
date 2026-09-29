@@ -2,7 +2,8 @@
 rem robocrop - Windows launcher; does what ./robocrop does on macOS and Linux.
 rem
 rem   .\robocrop.cmd --input ~/Pictures/portraits --output ./dataset
-rem   .\robocrop.cmd --setup      install everything, check it loads, and exit
+rem   .\robocrop.cmd --setup      install everything, check it loads, create
+rem                               robocrop.toml if it's missing, and exit
 rem
 rem Honours ROBOCROP_VENV, ROBOCROP_PYTHON (default: python, then py),
 rem ROBOCROP_NO_VLM=1 and ROBOCROP_SKIP_SYNC=1, as ./robocrop does.
@@ -57,6 +58,10 @@ exit /b %ERRORLEVEL%
 
 :setup
 "%py%" -c "import cv2, numpy, PIL" || goto noload
+if exist "%here%\robocrop.toml" goto setupdone
+copy "%here%\robocrop.example.toml" "%here%\robocrop.toml" >nul || goto nosettings
+>&2 echo robocrop: created robocrop.toml, your settings file
+:setupdone
 >&2 echo robocrop: setup complete
 exit /b 0
 
@@ -82,4 +87,8 @@ exit /b 1
 
 :noload
 >&2 echo robocrop: the libraries installed but don't load; see the error above
+exit /b 1
+
+:nosettings
+>&2 echo robocrop: could not create %here%\robocrop.toml
 exit /b 1

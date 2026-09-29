@@ -15,7 +15,8 @@ On Windows, use `.venv\Scripts\python`.
 on the first run, and reinstall the requirements whenever a requirements file
 changes. They then run `python -m robocrop` with `src` on the path.
 `--setup` stops after the install, once it has checked that the libraries
-load. They read these environment variables:
+load and copied `robocrop.example.toml` to `robocrop.toml` if that is
+missing. They read these environment variables:
 
 | Variable | Effect |
 |---|---|
