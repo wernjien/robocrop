@@ -227,6 +227,94 @@ def test_training_config_only_detects_masks_from_the_manifest(tmp_path, stubs, m
     assert written["masked_training"] is True
 
 
+# -- --mask-dir ------------------------------------------------------------------
+def test_mask_dir_writes_masks_named_like_the_crop(tmp_path, stubs):
+    make_photo(tmp_path / "photos" / "a.png")
+
+    Pipeline(masked_config(tmp_path, mask_dir=tmp_path / "masks")).run()
+
+    mask = Image.open(tmp_path / "masks" / "0001.png")
+    assert mask.mode == "L" and mask.getpixel((512, 150)) == 0
+    assert not (tmp_path / "out" / "0001-masklabel.png").exists()
+    assert row(tmp_path)["mask_file"] == "0001.png"
+    assert row(tmp_path)["mask_dir"] == str((tmp_path / "masks").resolve())
+
+
+def test_mask_dir_stays_flat_with_per_size_dirs(tmp_path, stubs):
+    make_photo(tmp_path / "photos" / "a.png")
+
+    Pipeline(masked_config(
+        tmp_path, mask_dir=tmp_path / "masks", per_size_dirs=True, format="jpg",
+    )).run()
+
+    assert (tmp_path / "out" / "1024" / "0001.jpg").exists()
+    assert (tmp_path / "masks" / "0001.png").exists()
+
+
+def test_masks_in_mask_dir_are_not_scanned_as_photos(tmp_path, stubs):
+    make_photo(tmp_path / "photos" / "a.png")
+    cfg = masked_config(tmp_path, mask_dir=tmp_path / "photos" / "masks")
+    Pipeline(cfg).run()
+
+    cfg.overwrite = True
+    stats = Pipeline(cfg).run()
+
+    assert stats.scanned == 1
+
+
+def test_overwrite_removes_masks_from_mask_dir(tmp_path, stubs):
+    make_photo(tmp_path / "photos" / "a.png")
+    make_photo(tmp_path / "photos" / "b.png")
+    Pipeline(masked_config(tmp_path, mask_dir=tmp_path / "masks")).run()
+    assert (tmp_path / "masks" / "0002.png").exists()
+
+    (tmp_path / "photos" / "b.png").unlink()
+    Pipeline(masked_config(tmp_path, mask_dir=tmp_path / "masks", overwrite=True)).run()
+
+    assert (tmp_path / "masks" / "0001.png").exists()
+    assert not (tmp_path / "masks" / "0002.png").exists()
+
+
+def test_overwrite_leaves_a_mask_dir_it_was_not_given(tmp_path, stubs):
+    make_photo(tmp_path / "photos" / "a.png")
+    Pipeline(masked_config(tmp_path, mask_dir=tmp_path / "masks")).run()
+
+    Pipeline(masked_config(tmp_path, overwrite=True)).run()
+
+    assert (tmp_path / "masks" / "0001.png").exists()
+
+
+def test_training_config_only_skips_masks_in_a_mask_dir(tmp_path, stubs, monkeypatch):
+    _template(tmp_path, monkeypatch)
+    make_photo(tmp_path / "photos" / "a.png")
+    Pipeline(masked_config(tmp_path, mask_dir=tmp_path / "masks")).run()
+
+    Pipeline(base_config(tmp_path, training_config_only=True)).run()
+
+    assert not (tmp_path / "out" / TRAINING_CONFIG_NAME).exists()
+
+
+def test_mask_dir_inside_output_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="mask-dir must be outside"):
+        Config(output=tmp_path / "out", mask_dir=tmp_path / "out" / "masks").validate()
+
+
+def test_mask_dir_with_training_config_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="drop --mask-dir or --training-config"):
+        Config(output=tmp_path / "out", mask_dir=tmp_path / "masks", training_config=True).validate()
+
+
+def test_mask_dir_flag_and_toml_key(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = build_config(["-i", str(tmp_path), "--mask-dir", "~/masks"])
+    assert cfg.mask_dir == Path("~/masks").expanduser()
+
+    toml = tmp_path / "run.toml"
+    toml.write_text('mask_dir = "~/other-masks"\n')
+    cfg = build_config(["-i", str(tmp_path), "--config", str(toml)])
+    assert cfg.mask_dir == Path("~/other-masks").expanduser()
+
+
 # -- configuration -------------------------------------------------------------
 @pytest.mark.parametrize("detector", ["yunet", "haar"])
 def test_mask_faces_rejects_a_face_detector(detector):

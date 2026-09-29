@@ -4,23 +4,50 @@ On Windows, type `.\robocrop.cmd` wherever this page says `./robocrop`.
 
 ## How masks work
 
-A mask tells the trainer which parts of an image to learn. The mask options
-write a greyscale `NAME-masklabel.png` beside each crop, where white is learned,
-black is ignored, and grey is learned partly:
+A mask tells the trainer which parts of an image to learn. Each crop gets a
+greyscale mask, where white is learned, black is ignored, and grey is learned
+partly. The crop itself is left untouched. The three mask options can be
+combined, and each pixel takes the lowest weight.
+
+## Mask folders for each trainer
+
+Trainers look for masks in different places.
+
+**OneTrainer** (the default) reads masks from beside the crops, named
+`NAME-masklabel.png`:
 
 ```
-dataset/0001.png             the crop, untouched
+dataset/0001.png             the crop
 dataset/0001-masklabel.png   its mask
 ```
 
-OneTrainer reads this naming directly. Other trainers may need the masks moved
-or renamed; kohya's sd-scripts, for example, reads the same filenames from a
-separate folder. Check that your trainer uses the grey levels as loss weights
-rather than rounding them to black and white.
+Add `--training-config` to have masked training turned on for you.
 
-The three mask options can be combined into one mask, and each pixel takes the
-lowest weight. Add `--training-config` to have masked training turned on in
-the generated config.
+**ai-toolkit** and **kohya's sd-scripts** read masks from a separate folder,
+named exactly like their crop. `--mask-dir` writes them that way:
+
+```bash
+./robocrop -i ./photos -o ./dataset --mask-clothing --mask-dir ./dataset-masks
+```
+
+```
+dataset/0001.png             the crop
+dataset-masks/0001.png       its mask
+```
+
+The mask folder must be outside the dataset folder, because ai-toolkit trains
+on every image it finds there, subfolders included. In ai-toolkit's config,
+point `mask_path` at it:
+
+```yaml
+datasets:
+  - folder_path: /path/to/dataset
+    mask_path: /path/to/dataset-masks
+```
+
+Leave ai-toolkit's `mask_min_value` at 0; raising it gives the masked areas
+some weight back. `--training-config` writes a OneTrainer config, so it can't
+be combined with `--mask-dir`.
 
 ## Masking faces
 

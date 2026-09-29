@@ -87,9 +87,10 @@ masks:
   accessories (found with a clothes parser) to --clothing-weight. Any
   combination. The crop itself is left untouched -- covering the face or the
   background would teach the model the cover -- and masked training scores
-  each pixel only as much as its mask allows.
-  OneTrainer reads these masks with masked training on, which
-  --training-config then enables.
+  each pixel only as much as its mask allows. OneTrainer reads these masks
+  with masked training on, which --training-config then enables. For
+  ai-toolkit (mask_path) and kohya, --mask-dir DIR writes the masks into DIR
+  instead, named like their crop.
 
 sizing rule:
   A crop is produced at the largest configured size whose minimum is met by the
@@ -261,6 +262,10 @@ def build_parser() -> argparse.ArgumentParser:
     add(mask, "--clothing-weight", type=float, metavar="F",
         help="loss weight of clothing, 0-1; raise it a little if the model "
              f"drifts on clothing (default: {_default('clothing_weight')})")
+    add(mask, "--mask-dir", type=Path, metavar="DIR",
+        help="write the masks into DIR, named like their crop (0001.png), "
+             "instead of NAME-masklabel.png beside it: the layout ai-toolkit "
+             "and kohya read; must be outside --output")
 
     out = parser.add_argument_group("output files")
     add(out, "--prefix", metavar="STR", help="filename prefix before the number")
@@ -436,6 +441,8 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
     config = Config(**{k: v for k, v in settings.items() if k in known})
     config.input = Path(config.input).expanduser()
     config.output = Path(config.output).expanduser()
+    if config.mask_dir is not None:
+        config.mask_dir = Path(config.mask_dir).expanduser()
 
     try:
         config.validate()

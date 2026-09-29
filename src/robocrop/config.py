@@ -65,6 +65,9 @@ class Config:
     """Weight clothing down in the same ``-masklabel.png``: learn the person, not the outfit."""
     clothing_weight: float = 0.0
     """Loss weight of clothing, 0-1."""
+    mask_dir: Path | None = None
+    """Write masks here, named like their crop, instead of ``-masklabel.png``
+    beside it: the layout ai-toolkit and kohya read."""
 
     # -- output ----------------------------------------------------------
     prefix: str = ""
@@ -172,6 +175,18 @@ class Config:
                 "--mask-faces needs a body or object detector (e.g. --detector "
                 "yolox); with a face detector every crop would be all mask"
             )
+        if self.mask_dir is not None:
+            mask_dir = Path(self.mask_dir).expanduser().resolve()
+            if mask_dir.is_relative_to(Path(self.output).expanduser().resolve()):
+                problems.append(
+                    "--mask-dir must be outside --output, or trainers that read "
+                    "every image in the dataset folder would train on the masks"
+                )
+            if self.training_config or self.training_config_only:
+                problems.append(
+                    "--training-config writes a OneTrainer config, and OneTrainer "
+                    "only reads masks beside the crops; drop --mask-dir or --training-config"
+                )
         if self.overwrite and self.resume:
             problems.append("--overwrite and --resume are mutually exclusive")
         if self.caption_only and self.training_config_only:
@@ -246,7 +261,7 @@ def load_toml(path: Path) -> dict[str, Any]:
         if name not in known:
             unknown.append(key)
             continue
-        if name in ("input", "output"):
+        if name in ("input", "output", "mask_dir"):
             value = Path(str(value)).expanduser()
         elif name in _TUPLE_FIELDS and isinstance(value, list):
             value = tuple(value)

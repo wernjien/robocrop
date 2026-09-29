@@ -64,7 +64,10 @@ class CropRecord:
     Carried through so the caption pass can read head pose, including on a
     resumed run where the detector is never re-run."""
     mask_file: str | None = None
-    """The ``-masklabel.png`` written with a --mask-* flag, else None."""
+    """The mask written with a --mask-* flag, relative to --output, or to
+    ``mask_dir`` when that is set; else None."""
+    mask_dir: str | None = None
+    """The --mask-dir folder holding ``mask_file``, when one was given."""
     masked_faces: int = 0
     background_mask: str | None = None
     """How the background was masked: ``outline`` from the person matte,
@@ -226,7 +229,7 @@ class Pipeline:
             # With the output inside the input (the defaults: . and
             # ./dataset), earlier crops would otherwise be re-cropped -- this
             # run's output, and any other robocrop dataset under the input.
-            skip_dirs=(cfg.output,),
+            skip_dirs=(cfg.output, cfg.mask_dir) if cfg.mask_dir else (cfg.output,),
             skip_marker=MANIFEST_NAME,
         ))
         if cfg.limit:
@@ -317,8 +320,12 @@ class Pipeline:
                             for name, (x, y) in region.landmarks.items()
                         },
                         mask_file=(
-                            masks.mask_name(self._image_name(next_index, plan.tier))
+                            self._mask_name(next_index, plan.tier)
                             if item.mask is not None else None
+                        ),
+                        mask_dir=(
+                            str(cfg.mask_dir.resolve())
+                            if item.mask is not None and cfg.mask_dir else None
                         ),
                         masked_faces=item.masked_faces,
                         background_mask=item.background,
@@ -701,23 +708,30 @@ class Pipeline:
         stem = f"{cfg.prefix}{index:0{cfg.digits}d}"
         return f"{tier}/{stem}.txt" if cfg.per_size_dirs else f"{stem}.txt"
 
-    def _output_path(self, relative: str) -> Path:
-        """``relative`` inside --output, refusing anything that escapes it.
+    def _mask_name(self, index: int, tier: int) -> str:
+        image_file = self._image_name(index, tier)
+        if self.cfg.mask_dir:
+            return f"{Path(image_file).stem}.png"
+        return masks.mask_name(image_file)
+
+    def _output_path(self, relative: str, root: Path | None = None) -> Path:
+        """``relative`` inside --output (or ``root``), refusing anything that
+        escapes it.
 
         Paths come from manifest.jsonl, and a manifest can be edited or come
         with a downloaded dataset: a row naming ``../../x`` must not get
         this tool to write, or on --overwrite delete, outside the dataset.
         """
-        root = self.cfg.output.resolve()
-        path = (root / relative).resolve()
-        if not path.is_relative_to(root):
-            raise ValueError(f"manifest path {relative!r} points outside {self.cfg.output}")
+        base = (root or self.cfg.output).resolve()
+        path = (base / relative).resolve()
+        if not path.is_relative_to(base):
+            raise ValueError(f"manifest path {relative!r} points outside {root or self.cfg.output}")
         return path
 
-    def _claim(self, relative: str) -> Path:
+    def _claim(self, relative: str, root: Path | None = None) -> Path:
         """Where to write a new output file, checking it is free to take."""
         cfg = self.cfg
-        target = self._output_path(relative)
+        target = self._output_path(relative, root)
         target.parent.mkdir(parents=True, exist_ok=True)
         # Numbering is derived from the manifest, so a collision means the
         # output folder holds files this run did not account for. When a
@@ -743,7 +757,8 @@ class Pipeline:
             crop.save(target, "PNG", compress_level=6)
 
     def _save_mask(self, mask: Image.Image, record: CropRecord) -> None:
-        mask.save(self._claim(record.mask_file), "PNG", compress_level=6)
+        root = self.cfg.mask_dir if record.mask_dir else None
+        mask.save(self._claim(record.mask_file, root), "PNG", compress_level=6)
 
     # -- manifest ---------------------------------------------------------
     def _resume_state(self) -> tuple[set[str], int]:
@@ -809,11 +824,16 @@ class Pipeline:
                 str(Path(image_file).with_suffix(".txt")),
                 masks.mask_name(image_file),
                 row.get("caption_file") or "",
-                row.get("mask_file") or "",
+                "" if row.get("mask_dir") else row.get("mask_file") or "",
             }
-            for name in filter(None, names):
+            targets = [(name, None) for name in filter(None, names)]
+            # Only this run's --mask-dir: a folder named by the manifest alone is not trusted.
+            mask_dir = self.cfg.mask_dir
+            if mask_dir and row.get("mask_file") and row.get("mask_dir") == str(mask_dir.resolve()):
+                targets.append((row["mask_file"], mask_dir))
+            for name, root in targets:
                 try:
-                    path = self._output_path(name)
+                    path = self._output_path(name, root)
                 except ValueError:
                     continue  # never delete outside the output directory
                 if path.is_file():
@@ -894,6 +914,13 @@ class Pipeline:
         """
         if not records:
             self._emit("warn", "no crops in the dataset, so no training config was written")
+            return
+        if any(r.mask_dir for r in records):
+            self._emit(
+                "warn",
+                "the masks are in a --mask-dir folder, which OneTrainer doesn't "
+                "read, so no training config was written",
+            )
             return
         try:
             template = json.loads(ONETRAINER_TEMPLATE_PATH.read_text(encoding="utf-8"))

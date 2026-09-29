@@ -9,6 +9,8 @@ grey in proportion -- OneTrainer multiplies the loss by the mask value.
 
 The file naming follows OneTrainer's convention -- ``0001.png`` pairs with
 ``0001-masklabel.png`` -- which OneTrainer picks up with masked training on.
+``--mask-dir`` writes them to a separate folder instead, named like the crop,
+for ai-toolkit and kohya.
 """
 
 from __future__ import annotations

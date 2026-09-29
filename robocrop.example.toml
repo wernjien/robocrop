@@ -91,6 +91,10 @@ fill      = "blur"
 # loss weight of clothing, 0-1
 # clothing_weight = 0.0
 
+# For ai-toolkit or kohya: write the masks into this folder, named like
+# their crop, instead of NAME-masklabel.png beside it. Must be outside output.
+# mask_dir = "./dataset-masks"
+
 # ---- output -------------------------------------------------------------
 # png | jpg | webp
 format  = "png"

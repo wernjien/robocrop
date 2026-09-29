@@ -23,10 +23,14 @@ listed in `.gitignore`.
 
 ## Crop size
 
-Each crop gets the largest size (512, 768 or 1024) that the detected object
-fills to at least `--min-ratio` (default 0.8), measured before padding. Objects
-too small for 512 are skipped and listed in `manifest.json`, so no crop is
-enlarged more than 1.25x. `--sizes 768,1024` changes the sizes.
+Each crop gets the largest size (512, 768 or 1024 by default) that the detected
+object fills to at least `--min-ratio` (default 0.8), measured before padding.
+Objects too small for the smallest size are skipped and listed in
+`manifest.json`, so no crop is enlarged more than 1.25x.
+
+`--sizes` changes the sizes: `--sizes 256,512,768,1024` also allows 256 px
+crops, and `--sizes 768,1024` drops 512. The generated OneTrainer config trains
+at the smallest size in the dataset, so a single 256 px crop lowers it to 256.
 
 A crop that doesn't quite fill its size is enlarged with a plain resize.
 `--upscale` uses FSRCNN, a small AI upscaler, instead. FSRCNN enlarges 2x in one
@@ -173,6 +177,7 @@ The output folder can be inside the input folder, because the scan skips it.
     --mask-faces        mask faces out of training
     --mask-background   weight the background down
     --mask-clothing     mask clothing out of training
+    --mask-dir DIR      put the masks in DIR, for ai-toolkit and kohya
     --training-config   write a OneTrainer config beside the crops
     --exclude GLOB      skip matching paths (repeatable)
     --limit N           stop after N photos

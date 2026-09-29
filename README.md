@@ -128,7 +128,8 @@ installs anything new.
 - [Usage guide](docs/usage.md): settings files, crop sizes, padding, blurry
   crops, captions, detectors, resuming, and all the main flags
 - [Training masks](docs/training.md): masking faces, backgrounds and clothing
-  out of training, and the generated OneTrainer config
+  out of training, mask folders for OneTrainer, ai-toolkit and kohya, and the
+  generated OneTrainer config
 - [Install help](docs/install.md): troubleshooting, what gets downloaded, GPU
   setup, and uninstalling
 - [Development](docs/development.md): tests, launchers, and adding a detector
