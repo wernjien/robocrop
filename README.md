@@ -119,12 +119,24 @@ Run RoboCrop from the `robocrop` folder:
 # Keep whole photos, resized, instead of cropping them
 ./robocrop -i ~/Pictures/portraits -o ./dataset --no-crop
 
+# Keep photos at their own size, cutting any over 1536 px around the subject
+./robocrop -i ~/Pictures/portraits -o ./dataset --keep-size
+
 # Show what would be cropped, without writing anything
 ./robocrop -i ~/Pictures/portraits -o ./dataset --dry-run
 ```
 
-To update RoboCrop, run `git pull` in the `robocrop` folder. The next run
-installs anything new.
+## Updating
+
+```bash
+cd ~/robocrop
+git pull
+```
+
+That's all. The next run installs any new libraries by itself, and your
+`robocrop.toml` and datasets are left alone. If you set up
+[`--upscale`](docs/usage.md#crop-size), repeat its two install commands
+afterwards.
 
 ## Documentation
 

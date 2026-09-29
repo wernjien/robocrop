@@ -33,6 +33,12 @@ sizes     = [512, 768, 1024]
 # instead of cropping around the subject
 # no_crop = true
 
+# or keep each photo at its native size: skip photos shorter than min_side,
+# and cut those longer than max_side to a window around the subject
+# keep_size = true
+# min_side  = 256
+# max_side  = 1536
+
 # fraction of a size a detection needs to reach to qualify for it.
 # The lower this is, the more a qualifying crop can need enlarging -- keep
 # it above 0.5 so that need never exceeds what the bundled AI upscaling

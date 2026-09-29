@@ -162,6 +162,49 @@ def plan_whole(
     )
 
 
+def plan_native(
+    image_w: int,
+    image_h: int,
+    subjects: Sequence[Rect],
+    *,
+    min_side: int,
+    max_side: int,
+) -> CropPlan:
+    """The photo at its own size and shape, or a window of it no longer than
+    ``max_side``, centred on ``subjects`` and never resized."""
+    long_side = max(image_w, image_h)
+    if long_side < min_side:
+        raise CropRejected(
+            f"image is {long_side}px, needs >={min_side}px", float(long_side), float(min_side)
+        )
+    if long_side <= max_side:
+        rect = Rect(0.0, 0.0, float(image_w), float(image_h))
+    else:
+        w = float(round(image_w * max_side / long_side))
+        h = float(round(image_h * max_side / long_side))
+        # The union of every subject when it fits, else the largest one.
+        box = Rect(
+            min(r.x for r in subjects), min(r.y for r in subjects),
+            max(r.x2 for r in subjects) - min(r.x for r in subjects),
+            max(r.y2 for r in subjects) - min(r.y for r in subjects),
+        )
+        if box.w > w or box.h > h:
+            box = max(subjects, key=lambda r: r.w * r.h)
+        x = _clamp(box.cx - w / 2.0, 0.0, image_w - w)
+        y = _clamp(box.cy - h / 2.0, 0.0, image_h - h)
+        rect = Rect(float(round(x)), float(round(y)), w, h)
+    side = max(rect.w, rect.h)
+    return CropPlan(
+        rect=rect,
+        tier=int(side),
+        base_side=float(long_side),
+        padded_side=side,
+        fitted_side=side,
+        clamped=rect.w < image_w or rect.h < image_h,
+        extends=False,
+    )
+
+
 def plan_crop(
     region: Rect,
     image_w: int,

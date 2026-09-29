@@ -30,7 +30,7 @@ from . import captioners, clothing, detectors, images, masks, segment, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
-from .geometry import CropRejected, Rect, plan_crop, plan_whole
+from .geometry import CropRejected, Rect, plan_crop, plan_native, plan_whole
 
 MANIFEST_NAME = "manifest.jsonl"
 SUMMARY_NAME = "manifest.json"
@@ -425,12 +425,18 @@ class Pipeline:
             if cfg.max_per_image:
                 regions = regions[: cfg.max_per_image]
             boxes = [r.rect for r in regions]
-            if cfg.no_crop:
+            whole = cfg.no_crop or cfg.keep_size
+            if whole:
                 regions = regions[:1]  # one output per photo
 
             for region in regions:
                 try:
-                    if cfg.no_crop:
+                    if cfg.keep_size:
+                        plan = plan_native(
+                            image.width, image.height, boxes,
+                            min_side=cfg.min_side, max_side=cfg.max_side,
+                        )
+                    elif cfg.no_crop:
                         plan = plan_whole(
                             image.width, image.height, sizes=cfg.sizes, min_ratio=cfg.min_ratio,
                         )
@@ -456,7 +462,7 @@ class Pipeline:
                     upscale=cfg.upscale,
                 )
 
-                if cfg.no_crop:
+                if whole:
                     sharpness = round(_subject_sharpness(crop, plan, region.rect), 1)
                 else:
                     inner_fraction = max(0.5, min(1.0, 1.0 / (1.0 + 2.0 * cfg.padding)))
@@ -471,7 +477,7 @@ class Pipeline:
                     crop.close()
                     continue
 
-                item = _Crop(region, plan, crop, sharpness, boxes=boxes if cfg.no_crop else [])
+                item = _Crop(region, plan, crop, sharpness, boxes=boxes if whole else [])
                 if cfg.writes_masks and not self._mask(item, path, result):
                     crop.close()
                     continue
@@ -622,7 +628,7 @@ class Pipeline:
             shared.update(
                 template=cfg.caption_template or DEFAULT_TEMPLATE,
                 # A whole photo frames a face widely; this names it an upper body portrait.
-                padding=1.0 if cfg.no_crop else cfg.padding,
+                padding=1.0 if cfg.no_crop or cfg.keep_size else cfg.padding,
             )
         return shared
 
@@ -945,8 +951,11 @@ class Pipeline:
             self._emit("warn", f"could not read {ONETRAINER_TEMPLATE_PATH.name}: {exc}")
             return
 
-        smallest_tier = min(r.tier for r in records)
-        template["resolution"] = str(smallest_tier)
+        # Native sizes vary per photo, so the smallest could be tiny; the template's value stands.
+        native = self.cfg.keep_size or any(r.tier not in self.cfg.sizes for r in records)
+        if not native:
+            template["resolution"] = str(min(r.tier for r in records))
+        resolution = template.get("resolution")
 
         batch_size = template.get("batch_size") or 1
         target_steps = 4000
@@ -973,7 +982,8 @@ class Pipeline:
         )
         self._emit(
             "info",
-            f"wrote {TRAINING_CONFIG_NAME} (resolution={smallest_tier}, "
+            f"wrote {TRAINING_CONFIG_NAME} (resolution={resolution}"
+            + (" from the template" if native else "") + ", "
             f"epochs={template['epochs']}"
             + (", masked training" if masked else "") + ")",
         )
@@ -1002,9 +1012,10 @@ class Pipeline:
 def _subject_sharpness(image: Image.Image, plan: Any, box: Rect) -> float:
     """Sharpness of the detected subject only, so a soft background doesn't count against it."""
     scale = image.width / plan.rect.w
-    left, top = max(0, int(box.x * scale)), max(0, int(box.y * scale))
-    right = min(image.width, int(box.x2 * scale))
-    bottom = min(image.height, int(box.y2 * scale))
+    x, y = box.x - plan.rect.x, box.y - plan.rect.y
+    left, top = max(0, int(x * scale)), max(0, int(y * scale))
+    right = min(image.width, int((x + box.w) * scale))
+    bottom = min(image.height, int((y + box.h) * scale))
     if right - left < 16 or bottom - top < 16:
         return images.measure_sharpness(image)
     return images.measure_sharpness(image.crop((left, top, right, bottom)))

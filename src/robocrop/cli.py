@@ -206,6 +206,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="keep each whole photo instead of cropping it: its shape is kept "
              "and its long side resized to the largest --sizes value it reaches; "
              "photos with no detection are still skipped")
+    add(crop, "--keep-size", action="store_true",
+        help="keep each photo at its own size and shape, never resized; a photo "
+             "longer than --max-side is cut to a window of it around the subject, "
+             "and one shorter than --min-side is skipped")
+    add(crop, "--min-side", type=int, metavar="PX",
+        help=f"with --keep-size, skip photos shorter than this on their long side (default: {_default('min_side')})")
+    add(crop, "--max-side", type=int, metavar="PX",
+        help=f"with --keep-size, the longest side kept before cutting a window (default: {_default('max_side')})")
     add(crop, "-p", "--padding", type=float, metavar="PCT",
         help=f"percent of the detection added to every side (default: {_default_pct('padding')})")
     add(crop, "-s", "--sizes", metavar="LIST",
@@ -532,7 +540,10 @@ def _summarise(config: Config, stats, emit) -> None:
         lines.append(f"captions written {stats.captioned}")
     if stats.skipped_no_detection:
         lines.append(f"skipped          {stats.skipped_no_detection} with no detection")
-    if stats.skipped_too_small:
+    if stats.skipped_too_small and config.keep_size:
+        lines.append(f"skipped          {stats.skipped_too_small} photo(s) under "
+                     f"{config.min_side}px on the long side")
+    elif stats.skipped_too_small:
         lines.append(f"skipped          {stats.skipped_too_small} detection(s) below "
                      f"{config.min_ratio:.0%} of {min(config.sizes)}px")
     if stats.skipped_blurry:

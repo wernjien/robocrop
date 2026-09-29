@@ -84,3 +84,48 @@ def test_background_mask_matches_the_photo_shape(tmp_path, stub, monkeypatch):
     assert mask.size == (1024, 768)
     assert mask.getpixel((380, 400)) == 255      # the person
     assert mask.getpixel((900, 100)) == round(0.1 * 255)  # the background
+
+
+# -- --keep-size -----------------------------------------------------------------
+def test_keep_size_leaves_a_photo_in_range_untouched(tmp_path, stub):
+    stub._current = [Region(rect=Rect(300, 200, 300, 600), score=0.9, label="person")]
+    make_photo(tmp_path / "photos" / "a.png", size=(1200, 900))
+
+    Pipeline(base_config(tmp_path, keep_size=True)).run()
+
+    assert Image.open(tmp_path / "out" / "0001.png").size == (1200, 900)
+
+
+def test_keep_size_cuts_a_full_resolution_window_around_the_subject(tmp_path, stub):
+    stub._current = [Region(rect=Rect(3200, 1000, 400, 800), score=0.9, label="person")]
+    make_photo(tmp_path / "photos" / "a.png", size=(4000, 3000))
+
+    Pipeline(base_config(tmp_path, keep_size=True)).run()
+
+    assert Image.open(tmp_path / "out" / "0001.png").size == (1536, 1152)
+    x, y, w, h = rows(tmp_path)[0]["crop"]
+    assert (w, h) == (1536.0, 1152.0)
+    assert x <= 3200 and x + w >= 3600 and x + w <= 4000   # the subject is inside
+
+
+def test_keep_size_skips_a_photo_under_the_minimum(tmp_path, stub):
+    stub._current = [Region(rect=Rect(50, 50, 100, 100), score=0.9, label="person")]
+    make_photo(tmp_path / "photos" / "a.png", size=(200, 150))
+
+    stats = Pipeline(base_config(tmp_path, keep_size=True)).run()
+
+    assert stats.written == 0 and stats.skipped_too_small == 1
+
+
+def test_keep_size_uses_the_min_and_max_given(tmp_path, stub):
+    stub._current = [Region(rect=Rect(300, 200, 300, 600), score=0.9, label="person")]
+    make_photo(tmp_path / "photos" / "a.png", size=(1200, 900))
+
+    Pipeline(base_config(tmp_path, keep_size=True, max_side=800)).run()
+
+    assert Image.open(tmp_path / "out" / "0001.png").size == (800, 600)
+
+
+def test_keep_size_and_no_crop_are_exclusive():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        Config(no_crop=True, keep_size=True).validate()

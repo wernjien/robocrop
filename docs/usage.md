@@ -56,6 +56,24 @@ and each photo gives one output however many people are in it. Padding and
 framing options don't apply, and the blur check scores only the detected
 subject.
 
+## Keeping native size
+
+`--keep-size` keeps each photo at its own size and shape, without resizing it:
+
+- a photo whose long side is between `--min-side` (default 256) and
+  `--max-side` (default 1536) is kept whole
+- a larger photo is cut to a full-resolution window of its own shape, no longer
+  than `--max-side`, centred on the people detected in it
+- a smaller photo is skipped
+
+```bash
+./robocrop -i ./photos -o ./dataset --keep-size --min-side 256 --max-side 1536
+```
+
+As with `--no-crop`, each photo gives one output, and photos with no detection
+are skipped. Because the sizes vary, `--training-config` keeps the template's
+`resolution` instead of setting it; check it's what you want to train at.
+
 ## Padding and framing
 
 `--padding` (default 20) adds that percentage of the object's size to every
@@ -177,6 +195,7 @@ The output folder can be inside the input folder, because the scan skips it.
     --min-sharpness F   drop crops below this sharpness, 0 to disable (default 10)
     --upscale           enlarge small crops with AI upscaling
     --no-crop           keep whole photos, resized, instead of cropping
+    --keep-size         keep photos at native size, cut down past --max-side
 -f, --format FMT        png, jpg or webp (default png)
     --per-size-dirs     write into 512/, 768/ and 1024/ subfolders
 -d, --detector NAME     yunet, haar or yolox (default yunet)

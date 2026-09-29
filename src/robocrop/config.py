@@ -31,6 +31,11 @@ class Config:
     sizes: tuple[int, ...] = (512, 768, 1024)
     min_ratio: float = 0.80
     no_crop: bool = False
+    keep_size: bool = False
+    """Keep each photo at its native size and shape, or a window of it around the
+    subject when longer than max_side; never resized."""
+    min_side: int = 256
+    max_side: int = 1536
     """Keep each whole photo, shape kept and long side resized to a size, rather than cropping it."""
     base_mode: BaseSideMode = "max"
     offset_x: float = 0.0
@@ -172,10 +177,10 @@ class Config:
                 "--mask-clothing parses people, so it needs a face "
                 "detector or --detector yolox with classes including person"
             )
-        if self.mask_faces and self.detector in ("yunet", "haar") and not self.no_crop:
+        if self.mask_faces and self.detector in ("yunet", "haar") and not (self.no_crop or self.keep_size):
             problems.append(
                 "--mask-faces needs a body or object detector (e.g. --detector "
-                "yolox), or --no-crop; with a face detector every crop would be all mask"
+                "yolox), or --no-crop / --keep-size; with a face detector every crop would be all mask"
             )
         if self.mask_dir is not None:
             mask_dir = Path(self.mask_dir).expanduser().resolve()
@@ -189,6 +194,10 @@ class Config:
                     "--training-config writes a OneTrainer config, and OneTrainer "
                     "only reads masks beside the crops; drop --mask-dir or --training-config"
                 )
+        if self.no_crop and self.keep_size:
+            problems.append("--no-crop and --keep-size are mutually exclusive")
+        if self.min_side < 1 or self.max_side < self.min_side:
+            problems.append("--min-side must be at least 1, and --max-side at least --min-side")
         if self.overwrite and self.resume:
             problems.append("--overwrite and --resume are mutually exclusive")
         if self.caption_only and self.training_config_only:

@@ -31,6 +31,12 @@ ROBOCROP_PYTHON=python3.12 ./robocrop --setup
 
 You only need the last line once.
 
+### `git pull` says your local changes would be overwritten
+
+You've edited one of RoboCrop's own files. Run `git stash` to set your edits
+aside, then `git pull` again. Your settings belong in `robocrop.toml`, which
+`git pull` never touches.
+
 ### `git clone` asks for a username and password
 
 The address is mistyped. RoboCrop is public and needs no login.
