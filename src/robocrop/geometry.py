@@ -90,6 +90,15 @@ class CropPlan:
         resize by default, or AI upscaling with --upscale)."""
         return self.tier / self.fitted_side
 
+    @property
+    def output_size(self) -> tuple[int, int]:
+        """Output width and height: ``tier`` on the long side, shape kept."""
+        long_side = max(self.rect.w, self.rect.h)
+        return (
+            round(self.rect.w * self.tier / long_side),
+            round(self.rect.h * self.tier / long_side),
+        )
+
 
 class CropRejected(Exception):
     """Raised when no configured size can be satisfied for a detection."""
@@ -126,6 +135,31 @@ def choose_tier(measure: float, sizes: Sequence[int], min_ratio: float) -> int |
         if measure >= min_ratio * size:
             return size
     return None
+
+
+def plan_whole(
+    image_w: int, image_h: int, *, sizes: Sequence[int], min_ratio: float = 0.8
+) -> CropPlan:
+    """The whole image as one output, its long side at the largest size it can fill."""
+    long_side = float(max(image_w, image_h))
+    tier = choose_tier(long_side, sizes, min_ratio)
+    if tier is None:
+        smallest = min(sizes)
+        raise CropRejected(
+            f"image is {long_side:.0f}px, needs >={min_ratio * smallest:.0f}px "
+            f"for the {smallest} tier",
+            long_side,
+            min_ratio * smallest,
+        )
+    return CropPlan(
+        rect=Rect(0.0, 0.0, float(image_w), float(image_h)),
+        tier=tier,
+        base_side=long_side,
+        padded_side=long_side,
+        fitted_side=long_side,
+        clamped=False,
+        extends=False,
+    )
 
 
 def plan_crop(

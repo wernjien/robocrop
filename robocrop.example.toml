@@ -29,6 +29,10 @@ padding   = 20
 
 sizes     = [512, 768, 1024]
 
+# keep each whole photo, shape kept and long side resized to a size above,
+# instead of cropping around the subject
+# no_crop = true
+
 # fraction of a size a detection needs to reach to qualify for it.
 # The lower this is, the more a qualifying crop can need enlarging -- keep
 # it above 0.5 so that need never exceeds what the bundled AI upscaling

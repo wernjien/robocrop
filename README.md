@@ -116,6 +116,9 @@ Run RoboCrop from the `robocrop` folder:
 ./robocrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person
 ./robocrop -i ~/Pictures/pets -o ./dataset --detector yolox --detector-opt classes=dog,cat
 
+# Keep whole photos, resized, instead of cropping them
+./robocrop -i ~/Pictures/portraits -o ./dataset --no-crop
+
 # Show what would be cropped, without writing anything
 ./robocrop -i ~/Pictures/portraits -o ./dataset --dry-run
 ```

@@ -30,6 +30,8 @@ class Config:
     padding: float = 0.20       # fraction of the base side, added to EACH side
     sizes: tuple[int, ...] = (512, 768, 1024)
     min_ratio: float = 0.80
+    no_crop: bool = False
+    """Keep each whole photo, shape kept and long side resized to a size, rather than cropping it."""
     base_mode: BaseSideMode = "max"
     offset_x: float = 0.0
     offset_y: float | None = None
@@ -170,10 +172,10 @@ class Config:
                 "--mask-clothing parses people, so it needs a face "
                 "detector or --detector yolox with classes including person"
             )
-        if self.mask_faces and self.detector in ("yunet", "haar"):
+        if self.mask_faces and self.detector in ("yunet", "haar") and not self.no_crop:
             problems.append(
                 "--mask-faces needs a body or object detector (e.g. --detector "
-                "yolox); with a face detector every crop would be all mask"
+                "yolox), or --no-crop; with a face detector every crop would be all mask"
             )
         if self.mask_dir is not None:
             mask_dir = Path(self.mask_dir).expanduser().resolve()

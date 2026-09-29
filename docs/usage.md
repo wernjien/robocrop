@@ -47,6 +47,15 @@ once from the `robocrop` folder (on Windows, use `.venv\Scripts\python`):
 An update can put `opencv-python` back, so repeat this if `--upscale` stops
 working.
 
+## Keeping whole photos
+
+`--no-crop` keeps each whole photo instead of cropping around the subject. Its
+shape is kept, and its long side is resized to the largest size it reaches, so
+a 4000×3000 photo becomes 1024×768. Photos with no detection are still skipped,
+and each photo gives one output however many people are in it. Padding and
+framing options don't apply, and the blur check scores only the detected
+subject.
+
 ## Padding and framing
 
 `--padding` (default 20) adds that percentage of the object's size to every
@@ -167,6 +176,7 @@ The output folder can be inside the input folder, because the scan skips it.
     --min-score F       drop detections below this confidence (default 0.8)
     --min-sharpness F   drop crops below this sharpness, 0 to disable (default 10)
     --upscale           enlarge small crops with AI upscaling
+    --no-crop           keep whole photos, resized, instead of cropping
 -f, --format FMT        png, jpg or webp (default png)
     --per-size-dirs     write into 512/, 768/ and 1024/ subfolders
 -d, --detector NAME     yunet, haar or yolox (default yunet)

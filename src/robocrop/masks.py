@@ -69,17 +69,18 @@ def isolate_person(matte: np.ndarray, box: Rect) -> np.ndarray | None:
     return np.where(keep > 0, matte, 0.0).astype(np.float32)
 
 
-def box_person(size: int, box: Rect) -> np.ndarray:
+def box_person(size: int | tuple[int, int], box: Rect) -> np.ndarray:
     """A hard-edged stand-in for a person matte: 1 inside the box, else 0."""
-    person = np.zeros((size, size), dtype=np.float32)
+    w, h = _dims(size)
+    person = np.zeros((h, w), dtype=np.float32)
     x0, y0 = max(0, int(box.x)), max(0, int(box.y))
-    x1, y1 = min(size, int(np.ceil(box.x2))), min(size, int(np.ceil(box.y2)))
+    x1, y1 = min(w, int(np.ceil(box.x2))), min(h, int(np.ceil(box.y2)))
     person[y0:y1, x0:x1] = 1.0
     return person
 
 
 def build_mask(
-    size: int,
+    size: int | tuple[int, int],
     faces: Sequence[Rect],
     margin: float,
     *,
@@ -88,9 +89,9 @@ def build_mask(
     clothing: np.ndarray | None = None,
     clothing_weight: float = 0.0,
 ) -> Image.Image:
-    """A ``size`` x ``size`` greyscale mask: white where the crop is learned.
+    """A greyscale mask, ``size`` square or (width, height): white where the crop is learned.
 
-    With ``person`` (a ``size`` x ``size`` matte in [0, 1]), the background
+    With ``person`` (a matte of the mask's shape, in [0, 1]), the background
     drops to the ``background`` weight and the person stays white, blending
     along the matte's soft edge. Without it, the whole crop starts white.
     With ``clothing`` (a matte of the same shape), clothing drops to
@@ -114,8 +115,12 @@ def build_mask(
     return Image.fromarray(np.round(weights * 255.0).astype(np.uint8))
 
 
-def _face_mask(size: int, faces: Sequence[Rect], margin: float) -> Image.Image:
-    mask = Image.new("L", (size, size), 255)
+def _dims(size: int | tuple[int, int]) -> tuple[int, int]:
+    return (size, size) if isinstance(size, int) else size
+
+
+def _face_mask(size: int | tuple[int, int], faces: Sequence[Rect], margin: float) -> Image.Image:
+    mask = Image.new("L", _dims(size), 255)
     if not faces:
         return mask
 

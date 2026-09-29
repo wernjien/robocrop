@@ -181,21 +181,22 @@ def extract(
             image, (left, top, right, bottom), fill=fill, fill_color=fill_color
         )
 
-    if crop.size[0] < plan.tier and upscale:
-        crop = _upscale_to(crop, plan.tier)
-    elif crop.size != (plan.tier, plan.tier):
+    size = plan.output_size
+    if max(crop.size) < plan.tier and upscale:
+        crop = _upscale_to(crop, size)
+    elif crop.size != size:
         # reducing_gap box-reduces a large downscale (6x and up, a 3900 px
         # crop to 512) before the Lanczos pass: ~2.6x faster, and no pixel
         # moves by more than 1/255. Smaller reductions are unaffected.
-        crop = crop.resize((plan.tier, plan.tier), resample, reducing_gap=3.0)
+        crop = crop.resize(size, resample, reducing_gap=3.0)
     return crop
 
 
-def _upscale_to(crop: Image.Image, tier: int) -> Image.Image:
+def _upscale_to(crop: Image.Image, size: tuple[int, int]) -> Image.Image:
     enlarged = superres.upscale(to_bgr(crop))
     result = Image.fromarray(enlarged[:, :, ::-1], mode="RGB")
-    if result.size != (tier, tier):
-        result = result.resize((tier, tier), Image.Resampling.LANCZOS)
+    if result.size != size:
+        result = result.resize(size, Image.Resampling.LANCZOS)
     return result
 
 

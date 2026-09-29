@@ -23,13 +23,14 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Sequence
 
+import numpy as np
 from PIL import Image
 
 from . import captioners, clothing, detectors, images, masks, segment, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
-from .geometry import CropRejected, Rect, plan_crop
+from .geometry import CropRejected, Rect, plan_crop, plan_whole
 
 MANIFEST_NAME = "manifest.jsonl"
 SUMMARY_NAME = "manifest.json"
@@ -120,6 +121,8 @@ class _Crop:
     masked_faces: int = 0
     background: str | None = None
     masked_clothing: float = 0.0
+    boxes: list[Rect] = field(default_factory=list)
+    """Every detection in the image, for a --no-crop background mask."""
 
     def close(self) -> None:
         self.image.close()
@@ -421,21 +424,29 @@ class Pipeline:
                 regions = regions[:1]  # detectors return largest-first
             if cfg.max_per_image:
                 regions = regions[: cfg.max_per_image]
+            boxes = [r.rect for r in regions]
+            if cfg.no_crop:
+                regions = regions[:1]  # one output per photo
 
             for region in regions:
                 try:
-                    plan = plan_crop(
-                        region.rect,
-                        image.width,
-                        image.height,
-                        padding=cfg.padding,
-                        sizes=cfg.sizes,
-                        min_ratio=cfg.min_ratio,
-                        base_mode=cfg.base_mode,
-                        offset_x=cfg.offset_x,
-                        offset_y=offset_y,
-                        edge=cfg.edge,
-                    )
+                    if cfg.no_crop:
+                        plan = plan_whole(
+                            image.width, image.height, sizes=cfg.sizes, min_ratio=cfg.min_ratio,
+                        )
+                    else:
+                        plan = plan_crop(
+                            region.rect,
+                            image.width,
+                            image.height,
+                            padding=cfg.padding,
+                            sizes=cfg.sizes,
+                            min_ratio=cfg.min_ratio,
+                            base_mode=cfg.base_mode,
+                            offset_x=cfg.offset_x,
+                            offset_y=offset_y,
+                            edge=cfg.edge,
+                        )
                 except CropRejected as exc:
                     result.skips.append(SkipRecord(str(path), "too_small", exc.reason))
                     continue
@@ -445,8 +456,11 @@ class Pipeline:
                     upscale=cfg.upscale,
                 )
 
-                inner_fraction = max(0.5, min(1.0, 1.0 / (1.0 + 2.0 * cfg.padding)))
-                sharpness = round(images.measure_sharpness(crop, inner_fraction=inner_fraction), 1)
+                if cfg.no_crop:
+                    sharpness = round(_subject_sharpness(crop, plan, region.rect), 1)
+                else:
+                    inner_fraction = max(0.5, min(1.0, 1.0 / (1.0 + 2.0 * cfg.padding)))
+                    sharpness = round(images.measure_sharpness(crop, inner_fraction=inner_fraction), 1)
 
                 if cfg.min_sharpness > 0 and sharpness < cfg.min_sharpness:
                     result.skips.append(SkipRecord(
@@ -457,7 +471,7 @@ class Pipeline:
                     crop.close()
                     continue
 
-                item = _Crop(region, plan, crop, sharpness)
+                item = _Crop(region, plan, crop, sharpness, boxes=boxes if cfg.no_crop else [])
                 if cfg.writes_masks and not self._mask(item, path, result):
                     crop.close()
                     continue
@@ -486,18 +500,20 @@ class Pipeline:
 
         person = None
         if cfg.mask_background:
-            # The detection box, in the resized crop's pixels.
-            scale = plan.tier / plan.rect.w
-            box = Rect(
-                (item.region.rect.x - plan.rect.x) * scale,
-                (item.region.rect.y - plan.rect.y) * scale,
-                item.region.rect.w * scale,
-                item.region.rect.h * scale,
-            )
-            person = masks.isolate_person(self._segmenter().matte(bgr), box)
-            item.background = "outline"
-            if person is None:
-                person, item.background = masks.box_person(plan.tier, box), "box"
+            # The detection boxes, in the resized crop's pixels.
+            scale = item.image.width / plan.rect.w
+            boxes = [
+                Rect((r.x - plan.rect.x) * scale, (r.y - plan.rect.y) * scale, r.w * scale, r.h * scale)
+                for r in item.boxes or [item.region.rect]
+            ]
+            matte = self._segmenter().matte(bgr)
+            people = [p for p in (masks.isolate_person(matte, box) for box in boxes) if p is not None]
+            item.background = "outline" if people else "box"
+            if not people:
+                people = [masks.box_person(item.image.size, box) for box in boxes]
+            person = people[0]
+            for other in people[1:]:
+                person = np.maximum(person, other)
 
         garments = None
         if cfg.mask_clothing:
@@ -508,7 +524,7 @@ class Pipeline:
         # else is masked: with masked training on, a missing mask file does
         # not mean "learn everything" in every trainer.
         item.mask = masks.build_mask(
-            plan.tier, [f.rect for f in faces], cfg.mask_margin,
+            item.image.size, [f.rect for f in faces], cfg.mask_margin,
             person=person, background=cfg.background_weight,
             clothing=garments, clothing_weight=cfg.clothing_weight,
         )
@@ -605,7 +621,8 @@ class Pipeline:
 
             shared.update(
                 template=cfg.caption_template or DEFAULT_TEMPLATE,
-                padding=cfg.padding,
+                # A whole photo frames a face widely; this names it an upper body portrait.
+                padding=1.0 if cfg.no_crop else cfg.padding,
             )
         return shared
 
@@ -980,6 +997,17 @@ class Pipeline:
             if detector is not None:
                 detector.close()
                 setattr(self._local, attr, None)
+
+
+def _subject_sharpness(image: Image.Image, plan: Any, box: Rect) -> float:
+    """Sharpness of the detected subject only, so a soft background doesn't count against it."""
+    scale = image.width / plan.rect.w
+    left, top = max(0, int(box.x * scale)), max(0, int(box.y * scale))
+    right = min(image.width, int(box.x2 * scale))
+    bottom = min(image.height, int(box.y2 * scale))
+    if right - left < 16 or bottom - top < 16:
+        return images.measure_sharpness(image)
+    return images.measure_sharpness(image.crop((left, top, right, bottom)))
 
 
 def _default_workers() -> int:

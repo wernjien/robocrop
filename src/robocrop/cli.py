@@ -202,6 +202,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="cap crops taken from one image (0 = no cap)")
 
     crop = parser.add_argument_group("crop geometry")
+    add(crop, "--no-crop", action="store_true",
+        help="keep each whole photo instead of cropping it: its shape is kept "
+             "and its long side resized to the largest --sizes value it reaches; "
+             "photos with no detection are still skipped")
     add(crop, "-p", "--padding", type=float, metavar="PCT",
         help=f"percent of the detection added to every side (default: {_default_pct('padding')})")
     add(crop, "-s", "--sizes", metavar="LIST",
@@ -237,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     add(mask, "--mask-faces", action="store_true",
         help="write a NAME-masklabel.png beside each crop that masks every "
              "face out of training, to learn a body, outfit or style but not "
-             "the face; needs a body detector such as yolox")
+             "the face; needs a body detector such as yolox, or --no-crop")
     add(mask, "--mask-margin", type=float, metavar="PCT",
         help="percent of the face box added to every side of its mask, to "
              f"cover hair, ears and jaw (default: {_default_pct('mask_margin')})")

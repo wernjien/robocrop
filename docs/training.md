@@ -68,7 +68,8 @@ for a face.
   face. It's lower than `--min-score` on purpose, because missing a face costs
   more than masking a patch of background.
 
-This needs a body or object detector, not a face detector. Skin tone and hair
+This needs a body or object detector, not a face detector, unless you use
+`--no-crop` to keep whole photos. Skin tone and hair
 colour still show, so masking reduces identity leakage but doesn't remove it.
 
 ## Masking the background
