@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
+from .detectors.base import Region
 from .geometry import Rect
 
 MASK_SUFFIX = "-masklabel"
@@ -30,6 +31,10 @@ MASK_SUFFIX = "-masklabel"
 #: the box height. YuNet boxes brow-to-chin, so the head (hair included)
 #: extends further above the box than below it.
 _LIFT = 0.12
+
+#: The chin sits this far below YuNet's mouth corners, as a fraction of the eye-to-mouth distance.
+_CHIN = 0.7
+_CHIN_FADE = 0.1
 
 
 def mask_name(image_file: str) -> str:
@@ -120,9 +125,9 @@ def build_mask(
 
 
 def face_outline(
-    matte: np.ndarray, faces: Sequence[Rect], *, reach: float = 0.4, min_cover: float = 0.15
+    matte: np.ndarray, faces: Sequence[Region], *, reach: float = 0.4, min_cover: float = 0.15
 ) -> tuple[np.ndarray, list[Rect]]:
-    """The parser's face pixels near each detected face, and the faces it missed.
+    """The parser's face pixels near each detected face, down to its chin, and the faces it missed.
 
     Only pixels within ``reach`` of a face box (a fraction of its side) are
     kept. A face the parser covers less than ``min_cover`` of is returned
@@ -131,12 +136,15 @@ def face_outline(
     h, w = matte.shape
     outline = np.zeros_like(matte)
     missed: list[Rect] = []
-    for box in faces:
+    for face in faces:
+        box = face.rect
         grow = reach * max(box.w, box.h)
         x0, y0 = max(0, int(box.x - grow)), max(0, int(box.y - grow))
         x1, y1 = min(w, int(np.ceil(box.x2 + grow))), min(h, int(np.ceil(box.y2 + grow)))
+        # The parser labels the neck and any bare chest as face too.
+        keep = _above_chin(face, x0, y0, x1, y1)
         part = matte[y0:y1, x0:x1]
-        if (part >= 0.5).sum() < min_cover * box.w * box.h:
+        if (part * keep >= 0.5).sum() < min_cover * box.w * box.h:
             missed.append(box)
             continue
         # Firm up the parser's soft guess: drop the faint haze over hair, and
@@ -144,8 +152,26 @@ def face_outline(
         part = np.clip((part - 0.3) / 0.4, 0.0, 1.0)
         k = max(3, int(0.08 * max(box.w, box.h)) | 1)
         part = cv2.morphologyEx(part, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
-        outline[y0:y1, x0:x1] = np.maximum(outline[y0:y1, x0:x1], part)
+        outline[y0:y1, x0:x1] = np.maximum(outline[y0:y1, x0:x1], part * keep)
     return outline, missed
+
+
+def _above_chin(face: Region, x0: int, y0: int, x1: int, y1: int) -> np.ndarray:
+    """Weights over the window: 1 down to the chin, fading to 0 just below it, along the head's tilt."""
+    marks = face.landmarks
+    down = np.zeros(2)
+    if {"left_eye", "right_eye", "left_mouth", "right_mouth"} <= marks.keys():
+        eyes = (np.array(marks["left_eye"]) + np.array(marks["right_eye"])) / 2
+        mouth = (np.array(marks["left_mouth"]) + np.array(marks["right_mouth"])) / 2
+        down = mouth - eyes
+    length = float(np.hypot(*down))
+    if length >= 1:
+        chin, down, fade = mouth + _CHIN * down, down / length, _CHIN_FADE * length
+    else:
+        chin, down, fade = np.array([face.rect.cx, face.rect.y2]), np.array([0.0, 1.0]), 0.05 * face.rect.h
+    ys, xs = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+    below = (xs - chin[0]) * down[0] + (ys - chin[1]) * down[1]
+    return np.clip(1.0 - below / fade, 0.0, 1.0).astype(np.float32)
 
 
 def _dims(size: int | tuple[int, int]) -> tuple[int, int]:

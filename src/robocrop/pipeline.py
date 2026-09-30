@@ -523,7 +523,7 @@ class Pipeline:
 
         face_matte, ovals = None, [f.rect for f in faces]
         if ovals and cfg.face_mask == "outline":
-            face_matte, ovals = masks.face_outline(self._clothing_segmenter().face_matte(bgr), ovals)
+            face_matte, ovals = masks.face_outline(self._clothing_segmenter().face_matte(bgr), faces)
 
         garments = None
         if cfg.mask_clothing:

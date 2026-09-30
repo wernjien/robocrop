@@ -11,6 +11,7 @@ from PIL import Image  # noqa: E402
 
 from robocrop import pipeline as pipeline_module  # noqa: E402
 from robocrop.config import Config  # noqa: E402
+from robocrop.detectors.base import Region  # noqa: E402
 from robocrop.geometry import Rect  # noqa: E402
 from robocrop.masks import build_mask, face_outline  # noqa: E402
 from robocrop.pipeline import Pipeline  # noqa: E402
@@ -50,7 +51,7 @@ def test_outline_keeps_only_the_face_pixels_near_each_face():
     matte = face_blob()
     matte[900:1000, 900:1000] = 1.0   # something face-like far from any detected face
 
-    outline, missed = face_outline(matte, [Rect(462, 100, 100, 100)])
+    outline, missed = face_outline(matte, [head()])
 
     assert not missed
     assert outline[150, 500] == 1.0
@@ -58,10 +59,50 @@ def test_outline_keeps_only_the_face_pixels_near_each_face():
 
 
 def test_a_face_the_parser_misses_falls_back_to_an_oval():
-    outline, missed = face_outline(np.zeros((1024, 1024), np.float32), [Rect(462, 100, 100, 100)])
+    outline, missed = face_outline(np.zeros((1024, 1024), np.float32), [head()])
 
     assert missed == [Rect(462, 100, 100, 100)]
     assert outline.max() == 0.0
+
+
+def with_neck(size=1024):
+    """The face blob, with the neck and chest below it that the parser also calls face."""
+    matte = face_blob(size)
+    matte[195:330, 480:545] = 1.0
+    return matte
+
+
+def test_outline_stops_at_the_chin_found_from_the_landmarks():
+    face = Region(rect=Rect(462, 100, 100, 100), score=0.9, landmarks={
+        "left_eye": (530, 135), "right_eye": (490, 135),
+        "left_mouth": (525, 165), "right_mouth": (495, 165),
+    })   # chin at 165 + 0.7 * 30 = 186
+
+    outline, _ = face_outline(with_neck(), [face])
+
+    assert outline[180, 510] == 1.0
+    assert outline[200, 510] == 0.0
+    assert outline[300, 510] == 0.0
+
+
+def test_the_chin_line_follows_a_tilted_head():
+    # Head tilted so "down" runs along (1, 1): the chin line is a diagonal.
+    face = Region(rect=Rect(462, 100, 100, 100), score=0.9, landmarks={
+        "left_eye": (500, 120), "right_eye": (480, 140),
+        "left_mouth": (520, 140), "right_mouth": (500, 160),
+    })   # chin at (524, 164)
+
+    outline, _ = face_outline(with_neck(), [face])
+
+    assert outline[190, 485] == 1.0   # below a flat cut through the chin, but above the tilted one
+    assert outline[190, 540] == 0.0
+
+
+def test_without_landmarks_the_outline_stops_at_the_box_bottom():
+    outline, _ = face_outline(with_neck(), [head()])   # box bottom at 200
+
+    assert outline[190, 510] == 1.0
+    assert outline[220, 510] == 0.0
 
 
 def test_build_mask_blacks_out_the_face_shape_only():
