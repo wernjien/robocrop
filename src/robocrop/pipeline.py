@@ -671,7 +671,7 @@ class Pipeline:
         # caption_file is trusted from the image path, not the manifest, so
         # this also works on rows written with --captioner none.
         for record in self.records:
-            record.caption_file = str(Path(record.image_file).with_suffix(".txt"))
+            record.caption_file = Path(record.image_file).with_suffix(".txt").as_posix()
 
         pending = self.records
         if cfg.resume:

@@ -41,7 +41,7 @@ def mask_name(image_file: str) -> str:
     """``3/0001.jpg`` -> ``3/0001-masklabel.png``. Always PNG: a mask must be
     lossless, or JPEG ringing leaks grey weight into the ignored area."""
     path = Path(image_file)
-    return str(path.with_name(f"{path.stem}{MASK_SUFFIX}.png"))
+    return path.with_name(f"{path.stem}{MASK_SUFFIX}.png").as_posix()
 
 
 def isolate_person(matte: np.ndarray, box: Rect) -> np.ndarray | None:

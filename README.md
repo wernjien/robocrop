@@ -1,5 +1,7 @@
 # RoboCrop
 
+[![Tests](https://github.com/wernjien/robocrop/actions/workflows/tests.yml/badge.svg)](https://github.com/wernjien/robocrop/actions/workflows/tests.yml)
+
 RoboCrop turns a folder of photos into a dataset for training an image model.
 It finds the faces (or bodies, animals or other objects) in every photo, crops
 each one to a 512, 768 or 1024 px square, and writes a caption beside it.

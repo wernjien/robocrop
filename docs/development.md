@@ -9,6 +9,11 @@
 
 On Windows, use `.venv\Scripts\python`.
 
+Every push and pull request also runs the suite on Mac, Linux and Windows in
+CI ([.github/workflows/tests.yml](../.github/workflows/tests.yml)), against
+just `requirements.txt`, so the caption and upscale libraries aren't needed to
+run it.
+
 ## Launchers
 
 `robocrop` (for Mac and Linux) and `robocrop.cmd` (for Windows) create `.venv`
