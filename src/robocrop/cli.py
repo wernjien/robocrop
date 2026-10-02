@@ -439,7 +439,10 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
     if "caption_drop" in args:
         args["caption_drop"] = tuple(args["caption_drop"])
     if "detector_opt" in args:
-        args["detector_opts"] = _parse_detector_opts(args.pop("detector_opt"))
+        args["detector_opts"] = {
+            **settings.get("detector_opts", {}),
+            **_parse_detector_opts(args.pop("detector_opt")),
+        }
     for pct in _PERCENT_FIELDS:
         if pct in args:
             args[pct] = args[pct] / 100.0   # the flag is a percentage

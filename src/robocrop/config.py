@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 import tomllib
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -121,6 +123,13 @@ class Config:
     def validate(self) -> None:
         problems: list[str] = []
 
+        for name in ("padding", "min_ratio", "min_score", "min_sharpness", "offset_x",
+                     "offset_y", "mask_margin", "mask_min_score", "background_weight",
+                     "clothing_weight"):
+            value = getattr(self, name)
+            if value is not None and not math.isfinite(value):
+                problems.append(f"--{name.replace('_', '-')} must be finite")
+
         if not self.sizes:
             problems.append("at least one --sizes value is required")
         if any(s <= 0 for s in self.sizes):
@@ -145,6 +154,23 @@ class Config:
             problems.append("--edge must be shift, extend or skip")
         if self.fill not in ("edge", "blur", "reflect", "color"):
             problems.append("--fill must be edge, blur, reflect or color")
+        if (len(self.fill_color) != 3
+                or any(type(c) is not int or not 0 <= c <= 255 for c in self.fill_color)):
+            problems.append("--fill-color must contain three integers in [0, 255]")
+        if self.base_mode not in ("max", "mean", "width", "height", "diag"):
+            problems.append("--base-mode must be max, mean, width, height or diag")
+        if self.captioner not in ("vlm", "template", "none"):
+            problems.append("--captioner must be vlm, template or none")
+        if self.caption_device not in ("auto", "mps", "cuda", "cpu"):
+            problems.append("--caption-device must be auto, mps, cuda or cpu")
+        for name in ("min_score", "quiet"):
+            if name in self.detector_opts:
+                problems.append(f"use --{name.replace('_', '-')} instead of --detector-opt {name}")
+        for pattern in self.caption_drop:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                problems.append(f"--caption-drop has an invalid regular expression: {exc}")
         for name in ("workers", "limit", "max_per_image", "start_index", "caption_max_chars"):
             if getattr(self, name) < 0:
                 # A negative --limit or --max-per-image would slice from the
@@ -215,6 +241,8 @@ class Config:
         if self.detector != "yolox":
             return True  # faces, or a custom detector we cannot see into
         classes = self.detector_opts.get("classes", "person")
+        if not isinstance(classes, (str, list, tuple)):
+            raise ValueError("--detector-opt classes must be a comma-separated string or a list")
         names = classes.split(",") if isinstance(classes, str) else classes
         names = {str(n).strip().lower() for n in names if str(n).strip()}
         return not names or bool(names & {"person", "all"})  # empty means all
@@ -250,7 +278,7 @@ def _check_template(template: str) -> str:
     except KeyError as exc:
         return (f"--caption-template has an unknown token {exc}; "
                 f"available: {', '.join(sorted(TOKENS))}")
-    except (IndexError, ValueError) as exc:
+    except (IndexError, ValueError, AttributeError, TypeError) as exc:
         return f"--caption-template is not a valid format string: {exc}"
     return ""
 
@@ -266,7 +294,10 @@ def load_toml(path: Path) -> dict[str, Any]:
 
     # Accept both a flat file and one nested under [robocrop].
     data = raw.get("robocrop", raw) if isinstance(raw, dict) else {}
+    if not isinstance(data, dict):
+        raise ValueError(f"invalid configuration in {path}: [robocrop] must be a table")
     known = {f.name for f in fields(Config)}
+    defaults = Config()
     out: dict[str, Any] = {}
     unknown: list[str] = []
 
@@ -275,6 +306,7 @@ def load_toml(path: Path) -> dict[str, Any]:
         if name not in known:
             unknown.append(key)
             continue
+        _check_toml_type(name, value, getattr(defaults, name))
         if name in ("input", "output", "mask_dir"):
             value = Path(str(value)).expanduser()
         elif name in _TUPLE_FIELDS and isinstance(value, list):
@@ -286,3 +318,25 @@ def load_toml(path: Path) -> dict[str, Any]:
             f"unknown key(s) in {path}: {', '.join(sorted(unknown))}"
         )
     return out
+
+
+def _check_toml_type(name: str, value: Any, default: Any) -> None:
+    """Reject malformed values before CLI merging or arithmetic can crash."""
+    if name in ("input", "output", "mask_dir"):
+        valid, expected = isinstance(value, str), "a path string"
+    elif isinstance(default, bool):
+        valid, expected = type(value) is bool, "a boolean"
+    elif isinstance(default, int):
+        valid, expected = type(value) is int, "an integer"
+    elif isinstance(default, float) or name == "offset_y":
+        valid, expected = type(value) in (int, float), "a number"
+    elif isinstance(default, str):
+        valid, expected = isinstance(value, str), "a string"
+    elif isinstance(default, tuple):
+        entry_type = int if name in ("sizes", "fill_color") else str
+        valid = isinstance(value, list) and all(type(v) is entry_type for v in value)
+        expected = "an array of integers" if entry_type is int else "an array of strings"
+    else:
+        valid, expected = isinstance(value, dict), "a table"
+    if not valid:
+        raise ValueError(f"invalid configuration: {name.replace('_', '-')} must be {expected}")
