@@ -115,9 +115,9 @@ blur check:
 upscaling:
   A crop smaller than its tier is enlarged either way; --upscale only changes
   the method, from a plain resize to AI upscaling using FSRCNN, a small
-  neural network trained to enlarge images (needs opencv-contrib-python; see
-  requirements-upscale.txt). A crop that already meets or exceeds its tier is
-  always just resized down, --upscale or not.
+  neural network trained to enlarge images (included in the standard install).
+  A crop that already meets or exceeds its tier is always just resized down,
+  --upscale or not.
 
   The bundled model enlarges 2x per pass, and the most a qualifying crop can
   need is 1/min-ratio times its own size -- so keep --min-ratio above 0.5 to
@@ -242,7 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
              f"0 disables the check (default: {_default('min_sharpness')})")
     add(crop, "--upscale", action="store_true",
         help="enlarge undersized crops with AI upscaling instead of a "
-             "plain resize; needs opencv-contrib-python. Crops that already "
+             "plain resize. Crops that already "
              "meet or exceed their tier are unaffected")
 
     mask = parser.add_argument_group("masks")

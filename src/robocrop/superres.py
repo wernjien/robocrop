@@ -2,8 +2,8 @@
 needs enlarging (``--upscale``).
 
 FSRCNN is small and fast enough to run per-crop on CPU, but its module lives
-in ``opencv-contrib-python``, not the plain ``opencv-python`` most installs
-use -- so it is only imported when actually requested.
+in ``opencv-contrib-python``; that contrib build is included in RoboCrop's
+standard requirements and the module is only checked when requested.
 """
 
 from __future__ import annotations
@@ -30,9 +30,8 @@ def _get_engine():
         return engine
     if not hasattr(cv2, "dnn_superres"):
         raise RuntimeError(
-            "--upscale needs the dnn_superres module, which plain opencv-python "
-            "does not ship. Install opencv-contrib-python instead (pip uninstall "
-            "opencv-python && pip install opencv-contrib-python)."
+            "--upscale needs opencv-contrib-python; reinstall RoboCrop's "
+            "standard requirements with ./robocrop --setup."
         )
     path = models.ensure("fsrcnn_x2")
     engine = cv2.dnn_superres.DnnSuperResImpl_create()

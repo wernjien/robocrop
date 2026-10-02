@@ -12,12 +12,10 @@
 # Environment:
 #   ROBOCROP_VENV      virtualenv location (default: <script dir>/.venv)
 #   ROBOCROP_PYTHON    interpreter used to build it (default: python, then python3)
-#   ROBOCROP_NO_VLM=1  skip the captioning dependencies (torch, transformers)
+#   ROBOCROP_NO_VLM=1  skip the captioning dependencies (transformers, accelerate)
 #   ROBOCROP_SKIP_SYNC=1  never touch pip, even if something looks missing
 #
-# --upscale needs opencv-contrib-python in place of opencv-python; this
-# launcher does not swap it automatically since the two conflict. See
-# requirements-upscale.txt.
+# The standard requirements include opencv-contrib-python for --upscale.
 
 set -euo pipefail
 
@@ -35,7 +33,7 @@ stamp_file="$venv/.robocrop-deps"
 mode="$( [ "${ROBOCROP_NO_VLM:-0}" = "1" ] && echo core || echo full )"
 reqs=("$here/requirements.txt")
 [ "$mode" = "full" ] && reqs+=("$here/requirements-caption.txt")
-stamp="v2:$mode:$(cat "${reqs[@]}" 2>/dev/null | cksum | tr -s ' ' '-')"
+stamp="v3:$mode:$(cat "${reqs[@]}" 2>/dev/null | cksum | tr -s ' ' '-')"
 
 die() { printf 'robocrop: %s\n' "$1" >&2; exit 1; }
 
@@ -59,6 +57,12 @@ fi
 
 if [ "${ROBOCROP_SKIP_SYNC:-0}" != "1" ] && [ "$(cat "$stamp_file" 2>/dev/null || true)" != "$stamp" ]; then
   printf 'robocrop: installing dependencies (first run only, this takes a few minutes)\n' >&2
+  # All OpenCV wheels share cv2. Removing only a plain wheel can erase
+  # files belonging to an already-installed contrib wheel; pip would then
+  # consider contrib satisfied and leave cv2 broken. Reinstall it together.
+  "$py" -m pip uninstall --yes opencv-python opencv-python-headless \
+    opencv-contrib-python-headless opencv-contrib-python >/dev/null 2>&1 \
+    || die "could not remove conflicting OpenCV packages"
   "$py" -m pip install --quiet -r "$here/requirements.txt" \
     || die "dependency install failed; see the output above"
   if [ "${ROBOCROP_NO_VLM:-0}" != "1" ]; then
@@ -69,7 +73,7 @@ if [ "${ROBOCROP_SKIP_SYNC:-0}" != "1" ] && [ "$(cat "$stamp_file" 2>/dev/null |
 fi
 
 if [ "${1:-}" = "--setup" ]; then
-  "$py" -c 'import cv2, numpy, PIL' \
+  "$py" -c 'import cv2, numpy, PIL, onnxruntime, torch, torchvision; assert hasattr(cv2, "dnn_superres")' \
     || die "the libraries installed but don't load; see the error above"
   if [ ! -f "$here/robocrop.toml" ]; then
     cp "$here/robocrop.example.toml" "$here/robocrop.toml" \

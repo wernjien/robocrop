@@ -11,8 +11,9 @@ On Windows, use `.venv\Scripts\python`.
 
 Every push and pull request also runs the suite on Mac, Linux and Windows in
 CI ([.github/workflows/tests.yml](../.github/workflows/tests.yml)), against
-just `requirements.txt`, so the caption and upscale libraries aren't needed to
-run it.
+`requirements.txt` and `requirements-dev.txt`. The core install includes
+PyTorch for face parsing and OpenCV contrib for upscaling; VLM caption libraries
+are not needed to run the suite.
 
 ## Launchers
 
@@ -27,7 +28,7 @@ missing. They read these environment variables:
 |---|---|
 | `ROBOCROP_PYTHON` | The Python used to create `.venv` (default: `python`, then `python3` or `py`) |
 | `ROBOCROP_VENV` | Where to create the environment (default: `.venv` beside the launcher) |
-| `ROBOCROP_NO_VLM=1` | Skip the caption libraries (torch and transformers) |
+| `ROBOCROP_NO_VLM=1` | Skip the caption libraries (transformers and accelerate) |
 | `ROBOCROP_SKIP_SYNC=1` | Never run pip, even if the requirements changed |
 
 Downloaded models are cached in `~/.cache/robocrop`, or in the folder that

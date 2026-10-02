@@ -190,18 +190,9 @@ at the smallest size in the dataset, so a single 256 px crop lowers it to 256.
 
 A crop that doesn't quite fill its size is enlarged with a plain resize.
 `--upscale` uses FSRCNN, a small AI upscaler, instead. FSRCNN enlarges 2x in one
-pass, so keep `--min-ratio` above 0.5; RoboCrop warns you if it isn't.
-
-`--upscale` needs `opencv-contrib-python` in place of `opencv-python`. Swap them
-once from the `robocrop` folder (on Windows, use `.venv\Scripts\python`):
-
-```bash
-.venv/bin/python -m pip uninstall -y opencv-python
-.venv/bin/python -m pip install -r requirements-upscale.txt
-```
-
-An update can put `opencv-python` back, so repeat this if `--upscale` stops
-working.
+pass. The standard install includes `opencv-contrib-python`, so `--upscale` is
+ready to use without swapping OpenCV packages. Keep `--min-ratio` above 0.5;
+RoboCrop warns you if it isn't.
 
 ### Keeping whole photos
 

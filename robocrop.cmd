@@ -36,12 +36,14 @@ del "%stamp%" >nul 2>&1
 :sync
 if "%ROBOCROP_SKIP_SYNC%"=="1" goto run
 set "want=%stamp%.new"
->"%want%" echo v2:%mode%
+>"%want%" echo v3:%mode%
 type "%here%\requirements.txt" >>"%want%"
 if "%mode%"=="full" type "%here%\requirements-caption.txt" >>"%want%"
 fc /b "%want%" "%stamp%" >nul 2>&1 && del "%want%" && goto run
 
 >&2 echo robocrop: installing dependencies (first run only, this takes a few minutes)
+rem All four OpenCV wheels share cv2; reinstall contrib after removing conflicts.
+"%py%" -m pip uninstall --yes opencv-python opencv-python-headless opencv-contrib-python-headless opencv-contrib-python >nul 2>&1 || goto depsfailed
 "%py%" -m pip install --quiet -r "%here%\requirements.txt" || goto depsfailed
 if not "%mode%"=="full" goto synced
 "%py%" -m pip install --quiet -r "%here%\requirements-caption.txt" || goto captionfailed
@@ -57,7 +59,7 @@ set "PYTHONPATH=%srcpath%"
 exit /b %ERRORLEVEL%
 
 :setup
-"%py%" -c "import cv2, numpy, PIL" || goto noload
+"%py%" -c "import cv2, numpy, PIL, onnxruntime, torch, torchvision; assert hasattr(cv2, 'dnn_superres')" || goto noload
 if exist "%here%\robocrop.toml" goto setupdone
 copy "%here%\robocrop.example.toml" "%here%\robocrop.toml" >nul || goto nosettings
 >&2 echo robocrop: created robocrop.toml, your settings file

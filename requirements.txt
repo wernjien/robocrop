@@ -1,7 +1,7 @@
 # Core: scanning, detection, cropping. Enough for --captioner template/none.
 pillow>=10.0
 numpy>=1.24
-opencv-python>=4.8
+opencv-contrib-python>=4.8,<5  # AI upscaling
 pillow-heif>=0.13      # HEIC/HEIF from iPhone libraries
 onnxruntime>=1.30      # BiRefNet's native DeformConv and FASHN clothing masks
 torch>=2.6            # SegFace face parsing (loaded only for outline masks)
