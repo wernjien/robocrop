@@ -213,10 +213,10 @@ def _crop_extended(
     if fill == "color":
         canvas = Image.new("RGB", (out_w, out_h), fill_color)
         # Paste whatever part of the window really exists, at its offset.
-        src = image.crop(
-            (max(left, 0), max(top, 0), min(right, image.width), min(bottom, image.height))
-        )
-        canvas.paste(src, (max(-left, 0), max(-top, 0)))
+        bounds = (max(left, 0), max(top, 0), min(right, image.width), min(bottom, image.height))
+        if bounds[2] > bounds[0] and bounds[3] > bounds[1]:
+            with image.crop(bounds) as src:
+                canvas.paste(src, (max(-left, 0), max(-top, 0)))
         return canvas
 
     if fill == "reflect":

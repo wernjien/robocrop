@@ -56,6 +56,8 @@ def isolate_person(matte: np.ndarray, box: Rect) -> np.ndarray | None:
 
     x0, y0 = max(0, int(box.x)), max(0, int(box.y))
     x1, y1 = min(w, int(np.ceil(box.x2))), min(h, int(np.ceil(box.y2)))
+    if x1 <= x0 or y1 <= y0:
+        return None
     touching = np.unique(labels[y0:y1, x0:x1])
     touching = touching[touching != 0]
     if touching.size == 0:
@@ -74,7 +76,8 @@ def box_person(size: int | tuple[int, int], box: Rect) -> np.ndarray:
     person = np.zeros((h, w), dtype=np.float32)
     x0, y0 = max(0, int(box.x)), max(0, int(box.y))
     x1, y1 = min(w, int(np.ceil(box.x2))), min(h, int(np.ceil(box.y2)))
-    person[y0:y1, x0:x1] = 1.0
+    if x1 > x0 and y1 > y0:
+        person[y0:y1, x0:x1] = 1.0
     return person
 
 

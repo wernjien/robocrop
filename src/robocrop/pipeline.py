@@ -533,9 +533,8 @@ class Pipeline:
         person = None
         if cfg.mask_background:
             # The detection boxes, in the resized crop's pixels.
-            scale = item.image.width / plan.rect.w
             boxes = [
-                Rect((r.x - plan.rect.x) * scale, (r.y - plan.rect.y) * scale, r.w * scale, r.h * scale)
+                _project_box(r, plan, item.image.size)
                 for r in item.boxes or [item.region.rect]
             ]
             matte = self._segmenter().matte(bgr)
@@ -1075,14 +1074,20 @@ class Pipeline:
 
 def _subject_sharpness(image: Image.Image, plan: Any, box: Rect) -> float:
     """Sharpness of the detected subject only, so a soft background doesn't count against it."""
-    scale = image.width / plan.rect.w
-    x, y = box.x - plan.rect.x, box.y - plan.rect.y
-    left, top = max(0, int(x * scale)), max(0, int(y * scale))
-    right = min(image.width, int((x + box.w) * scale))
-    bottom = min(image.height, int((y + box.h) * scale))
+    projected = _project_box(box, plan, image.size)
+    left, top = max(0, int(projected.x)), max(0, int(projected.y))
+    right = min(image.width, int(projected.x2))
+    bottom = min(image.height, int(projected.y2))
     if right - left < 16 or bottom - top < 16:
         return images.measure_sharpness(image)
     return images.measure_sharpness(image.crop((left, top, right, bottom)))
+
+
+def _project_box(box: Rect, plan: Any, size: tuple[int, int]) -> Rect:
+    """Source pixels to output pixels, using the exact extraction window."""
+    left, top, right, bottom = plan.rect.rounded()
+    sx, sy = size[0] / (right - left), size[1] / (bottom - top)
+    return Rect((box.x - left) * sx, (box.y - top) * sy, box.w * sx, box.h * sy)
 
 
 def _default_workers() -> int:

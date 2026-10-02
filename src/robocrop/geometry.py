@@ -95,8 +95,8 @@ class CropPlan:
         """Output width and height: ``tier`` on the long side, shape kept."""
         long_side = max(self.rect.w, self.rect.h)
         return (
-            round(self.rect.w * self.tier / long_side),
-            round(self.rect.h * self.tier / long_side),
+            max(1, round(self.rect.w * self.tier / long_side)),
+            max(1, round(self.rect.h * self.tier / long_side)),
         )
 
 
