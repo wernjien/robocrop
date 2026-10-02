@@ -320,8 +320,10 @@ teddy bear, hair drier, toothbrush
 
 ### Resuming and overwriting
 
-`--resume` continues an interrupted run. Photos already in `manifest.jsonl` are
-skipped, and the numbering carries on.
+`--resume` continues an interrupted run. Completed photos in `manifest.jsonl`
+are skipped, partly saved photos get their remaining crops, and the numbering
+carries on. Missing or empty caption files are retried; existing captions are
+kept. Resume with the same crop and detector settings as the interrupted run.
 
 If the output folder already holds a run, RoboCrop won't start unless you pass
 `--resume` or `--overwrite`. `--overwrite` first deletes the previous run's

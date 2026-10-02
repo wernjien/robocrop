@@ -513,12 +513,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\ninterrupted; progress so far is in the manifest "
               "(re-run with --resume)", file=sys.stderr)
         return 130
-    except (RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     _summarise(config, stats, emit)
-    return 0 if stats.written or not stats.scanned else 1
+    return 0 if not stats.errors and (stats.written or stats.captioned or not stats.scanned) else 1
 
 
 def _summarise(config: Config, stats, emit) -> None:

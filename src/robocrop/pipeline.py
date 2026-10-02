@@ -158,6 +158,8 @@ class Pipeline:
         """Verbatim manifest lines from the run being resumed. The caption
         pass rewrites the manifest, and this run only holds its own records,
         so the earlier rows have to be carried across explicitly."""
+        self._completed_crops: dict[str, set[int]] = {}
+        """Saved crop positions, including partially completed source images."""
 
     # -- detector per thread ---------------------------------------------
     def _detector(self):
@@ -256,17 +258,30 @@ class Pipeline:
 
         self._crop_pass(paths, next_index)
 
-        if cfg.captioner != "none" and self.records and not cfg.dry_run:
-            self._caption_pass()
+        if cfg.captioner != "none" and not cfg.dry_run:
+            if self._resuming:
+                # A crop-time interruption can leave all earlier images
+                # saved but none captioned. Resume both passes, even when
+                # there are no new source images to crop.
+                self.records = self._read_manifest_records()
+                self._carried.clear()
+                pending = self._pending_captions(self.records)
+                if pending:
+                    self._caption_pass(pending)
+                elif self.records:
+                    self._rewrite_manifest()
+            elif self.records:
+                self._caption_pass()
 
         if not cfg.dry_run:
-            self._write_summary()
             if cfg.training_config:
                 # From the manifest, not this run's records: on --resume the
                 # dataset is every run's crops, not just the latest batch.
                 self._write_training_config(self._read_manifest_records())
 
         self.stats.seconds = time.monotonic() - started
+        if not cfg.dry_run:
+            self._write_summary()
         return self.stats
 
     # -- pass 1 -----------------------------------------------------------
@@ -276,6 +291,7 @@ class Pipeline:
         manifest_path = cfg.output / MANIFEST_NAME
         created = not cfg.dry_run and not manifest_path.exists()
         manifest = None if cfg.dry_run else manifest_path.open("a", encoding="utf-8")
+        result = None
 
         try:
             for result in _ordered_map(self._process_image, paths, workers):
@@ -297,6 +313,9 @@ class Pipeline:
 
                 total = len(result.crops)
                 for face_index, item in enumerate(result.crops):
+                    if face_index in self._completed_crops.get(str(result.source), set()):
+                        item.close()
+                        continue
                     region, plan, crop = item.region, item.plan, item.image
                     record = CropRecord(
                         index=next_index,
@@ -375,6 +394,9 @@ class Pipeline:
                         f"{self.stats.written} crops",
                     )
         finally:
+            if result is not None:
+                for item in result.crops:
+                    item.close()
             if manifest is not None:
                 manifest.close()
                 # Left empty, it would make the next run refuse this folder.
@@ -570,46 +592,76 @@ class Pipeline:
             for start in range(0, len(pending), batch):
                 chunk = pending[start : start + batch]
                 requests, live = [], []
-                for record in chunk:
-                    path = self._output_path(record.image_file)
-                    try:
-                        image = Image.open(path)
-                        image.load()
-                    except Exception as exc:  # noqa: BLE001
-                        self._emit("warn", f"could not reopen {path.name}: {exc}")
-                        self.stats.errors += 1
+                try:
+                    for record in chunk:
+                        path = self._output_path(record.image_file)
+                        image = None
+                        try:
+                            image = Image.open(path)
+                            image.load()
+                        except Exception as exc:  # noqa: BLE001
+                            if image is not None:
+                                image.close()
+                            self._emit("warn", f"could not reopen {path.name}: {exc}")
+                            self.stats.errors += 1
+                            continue
+                        live.append((record, image))
+                        requests.append(
+                            CaptionRequest(
+                                image=image,
+                                source_path=record.source,
+                                region=self._region_for(record),
+                                tier=record.tier,
+                                index=record.index,
+                            )
+                        )
+
+                    if not requests:
                         continue
-                    requests.append(
-                        CaptionRequest(
-                            image=image,
-                            source_path=record.source,
-                            region=self._region_for(record),
-                            tier=record.tier,
-                            index=record.index,
-                        )
-                    )
-                    live.append((record, image))
 
-                if not requests:
-                    continue
-
-                texts = captioner.caption_batch(requests)
-                for (record, image), text in zip(live, texts):
-                    record.caption = text
-                    if text:
-                        self._output_path(record.caption_file).write_text(
-                            text + "\n", encoding="utf-8"
+                    texts = captioner.caption_batch(requests)
+                    if len(texts) != len(live) or any(not isinstance(t, str) for t in texts):
+                        raise ValueError(
+                            f"captioner returned {len(texts)} captions for {len(live)} images; "
+                            "expected one string per image"
                         )
-                        self.stats.captioned += 1
-                    image.close()
+                    for (record, image), text in zip(live, texts, strict=True):
+                        if text:
+                            self._output_path(record.caption_file).write_text(
+                                text + "\n", encoding="utf-8"
+                            )
+                            self.stats.captioned += 1
+                            record.caption = text
+                        else:
+                            self.stats.errors += 1
+                            self._emit("warn", f"no caption returned for {record.image_file}")
+                finally:
+                    for record, image in live:
+                        image.close()
 
                 if not cfg.quiet:
                     done = min(start + batch, len(pending))
                     self._emit("progress", f"  captioned {done}/{len(pending)}")
         finally:
-            captioner.close()
+            try:
+                captioner.close()
+            finally:
+                # Preserve completed captions if a later batch fails.
+                self._rewrite_manifest()
 
-        self._rewrite_manifest()
+    def _pending_captions(self, records: list[CropRecord]) -> list[CropRecord]:
+        """Keep existing nonempty captions and retry missing/empty files."""
+        pending = []
+        for record in records:
+            if not record.caption_file:
+                continue
+            path = self._output_path(record.caption_file)
+            text = path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+            if text:
+                record.caption = text
+            else:
+                pending.append(record)
+        return pending
 
     def _caption_kwargs(self) -> dict[str, Any]:
         cfg = self.cfg
@@ -679,10 +731,7 @@ class Pipeline:
 
         pending = self.records
         if cfg.resume:
-            pending = [
-                r for r in self.records
-                if not self._output_path(r.caption_file).exists()
-            ]
+            pending = self._pending_captions(self.records)
             self.stats.skipped_existing = len(self.records) - len(pending)
 
         self.stats.scanned = self.stats.written = len(pending)
@@ -694,6 +743,8 @@ class Pipeline:
             # crop-time stats (detections, skips, ...) from the original run
             # are not clobbered by this partial one.
             self._caption_pass(pending)
+        elif not cfg.dry_run and cfg.resume:
+            self._rewrite_manifest()
 
     def _training_config_only_run(self) -> None:
         """(Re)generate training_config.json for an existing --output dataset,
@@ -723,10 +774,13 @@ class Pipeline:
     def _read_manifest_records(self) -> list[CropRecord]:
         """Every record in the output's manifest, or [] if there is none."""
         known = {f.name for f in fields(CropRecord)}
-        return [
-            CropRecord(**{k: v for k, v in row.items() if k in known})
-            for row in _read_rows(self.cfg.output / MANIFEST_NAME)
-        ]
+        records = []
+        for number, row in enumerate(_read_rows(self.cfg.output / MANIFEST_NAME), 1):
+            try:
+                records.append(CropRecord(**{k: v for k, v in row.items() if k in known}))
+            except TypeError as exc:
+                raise ValueError(f"invalid crop record {number} in {MANIFEST_NAME}: {exc}") from exc
+        return records
 
     # -- output helpers ---------------------------------------------------
     def _image_name(self, index: int, tier: int) -> str:
@@ -818,26 +872,24 @@ class Pipeline:
 
         self._resuming = True
         done: set[str] = set()
+        expected: dict[str, int] = {}
         highest = cfg.start_index - 1
         text = manifest.read_text(encoding="utf-8")
-        torn = False
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                torn = True  # the torn final line of an interrupted run
-                continue
+        for line, row in _manifest_lines(manifest):
             if "source" in row:
-                done.add(row["source"])
+                source = row["source"]
+                saved = self._completed_crops.setdefault(source, set())
+                saved.add(int(row.get("face_index", 0)))
+                expected[source] = max(expected.get(source, 1), int(row.get("faces_in_image", 1)))
             highest = max(highest, int(row.get("index", highest)))
             self._carried.append(line)
+        for source, total in expected.items():
+            if set(range(total)).issubset(self._completed_crops[source]):
+                done.add(source)
 
         # Appending after a torn or unterminated last line would glue the
         # next row onto it and lose that row too, so start from clean rows.
-        if (torn or (text and not text.endswith("\n"))) and not cfg.dry_run:
+        if text and not text.endswith("\n") and not cfg.dry_run:
             self._write_manifest(self._carried)
         return done, highest + 1
 
@@ -1044,16 +1096,28 @@ def _default_workers() -> int:
 
 def _read_rows(path: Path) -> Iterator[dict[str, Any]]:
     """The JSON rows of a manifest, skipping a torn final line."""
+    for line, row in _manifest_lines(path):
+        yield row
+
+
+def _manifest_lines(path: Path) -> list[tuple[str, dict[str, Any]]]:
+    """Validate the entire manifest before callers modify any dataset files."""
     if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
+        return []
+    text = path.read_text(encoding="utf-8")
+    lines = [(n, line.strip()) for n, line in enumerate(text.splitlines(), 1) if line.strip()]
+    rows = []
+    for n, line in lines:
         try:
-            yield json.loads(line)
-        except json.JSONDecodeError:
-            continue  # tolerate a torn final line from an interrupted run
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            if n == lines[-1][0] and not text.endswith("\n"):
+                continue  # only an unterminated final row can be a torn write
+            raise ValueError(f"invalid manifest {path} at line {n}: {exc.msg}") from exc
+        if not isinstance(row, dict):
+            raise ValueError(f"invalid manifest {path} at line {n}: expected a JSON object")
+        rows.append((line, row))
+    return rows
 
 
 def _ordered_map(
