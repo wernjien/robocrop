@@ -1,60 +1,49 @@
-"""Clothes parsing (SegFormer-B2 on ATR, OpenCV DNN), for clothing masks."""
+"""FASHN Human Parser (SegFormer-B4) clothing loss masks."""
 
 from __future__ import annotations
 
 import cv2
 import numpy as np
 
-from . import models
+from .mask_inference import OnnxMaskModel, normalize
 
-_INPUT = 512
-_MEAN = (0.485 * 255, 0.456 * 255, 0.406 * 255)
-_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 3, 1, 1) * 255
+_WIDTH, _HEIGHT = 384, 576
 
-#: ATR labels counted as clothing: hat, sunglasses, upper-clothes, skirt,
-#: pants, dress, belt, left/right shoe, bag, scarf. Hair, face and limbs are not.
-CLOTHING_CLASSES = (1, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17)
-FACE_CLASS = 11
+# FASHN labels: top, dress, skirt, pants, belt, bag, hat, scarf, glasses,
+# jewelry. Feet are excluded: the model has no separate shoe class,
+# and bare skin must stay learned in clothing-only masks.
+CLOTHING_CLASSES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 17)
 
 
-class ClothingSegmenter:
+class ClothingSegmenter(OnnxMaskModel):
     def __init__(self, *, quiet: bool = False) -> None:
-        path = models.ensure("segformer_clothes", quiet=quiet)
-        self._net = cv2.dnn.readNet(str(path))
-        self._cached: tuple | None = None
+        super().__init__("fashn_clothes", quiet=quiet)
 
     def matte(self, image: np.ndarray) -> np.ndarray:
-        """Clothing probability for a BGR uint8 image, float32 in [0, 1], same size."""
-        return self._class_matte(image, CLOTHING_CLASSES)
-
-    def face_matte(self, image: np.ndarray) -> np.ndarray:
-        """Face probability for a BGR uint8 image, float32 in [0, 1], same size."""
-        return self._class_matte(image, (FACE_CLASS,))
-
-    def _class_matte(self, image: np.ndarray, classes: tuple[int, ...]) -> np.ndarray:
+        """Clothing probability for a BGR image, float32 in [0, 1]."""
         h, w = image.shape[:2]
-        probs = self._probs(image)
-        matte = cv2.resize(probs[list(classes)].sum(axis=0), (w, h), interpolation=cv2.INTER_LINEAR)
-        # Logits are 1/4 scale, so edges blur over one cell; grow past it or a rim is learned.
-        grow = int(np.ceil(max(h, w) / probs.shape[-1]))
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1))
-        return np.clip(cv2.dilate(matte, kernel), 0.0, 1.0).astype(np.float32)
-
-    def _probs(self, image: np.ndarray) -> np.ndarray:
-        """Per-class probabilities, cached so a face and a clothing matte share one pass."""
-        if self._cached is not None and self._cached[0] is image:
-            return self._cached[1]
-        # mean is given in RGB order because swapRB runs first.
-        blob = cv2.dnn.blobFromImage(image, 1.0, (_INPUT, _INPUT), _MEAN, swapRB=True)
-        self._net.setInput(blob / _STD)
-        logits = self._net.forward()[0]
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # INTER_AREA is the exact resize used by the official FASHN package.
+        resized = cv2.resize(rgb, (_WIDTH, _HEIGHT), interpolation=cv2.INTER_AREA)
+        logits = self._run(normalize(resized))[0]
         exp = np.exp(logits - logits.max(axis=0, keepdims=True))
-        probs = exp / exp.sum(axis=0)
-        self._cached = (image, probs)
-        return probs
-
-    def close(self) -> None:
-        return None
+        probs = exp / exp.sum(axis=0, keepdims=True)
+        matte = cv2.resize(
+            probs[list(CLOTHING_CLASSES)].sum(axis=0),
+            (w, h),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        # Class confidence is not garment opacity. Small residual scores on
+        # skin must not lower its training weight, and confident garments
+        # must reach the requested clothing weight rather than leave a rim
+        # of residual loss. Keep the uncertain boundary soft.
+        matte = np.clip((matte - 0.3) / 0.4, 0.0, 1.0)
+        # Cover a logit cell's soft rim, so garment edges are not learned.
+        grow = max(1, int(np.ceil(max(h / logits.shape[1], w / logits.shape[2]))))
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1)
+        )
+        return np.clip(cv2.dilate(matte, kernel), 0.0, 1.0).astype(np.float32)
 
 
 def create(*, quiet: bool = False) -> ClothingSegmenter:

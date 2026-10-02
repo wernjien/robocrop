@@ -26,7 +26,7 @@ from typing import Any, Callable, Iterable, Iterator, Sequence
 import numpy as np
 from PIL import Image
 
-from . import captioners, clothing, detectors, images, masks, segment, superres
+from . import captioners, clothing, detectors, face_parse, images, masks, segment, superres
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
@@ -147,6 +147,8 @@ class Pipeline:
         self.cfg = config
         self._emit = on_event or (lambda level, message: None)
         self._local = threading.local()
+        self._mask_models: dict[str, Any] = {}
+        self._mask_models_lock = threading.Lock()
         self.stats = Stats()
         self.records: list[CropRecord] = []
         self.skips: list[SkipRecord] = []
@@ -187,20 +189,20 @@ class Pipeline:
         return existing
 
     def _segmenter(self):
-        """The per-thread person matting net for background masks."""
-        existing = getattr(self._local, "segmenter", None)
-        if existing is None:
-            existing = segment.create(quiet=self.cfg.quiet)
-            self._local.segmenter = existing
-        return existing
+        return self._mask_model("segmenter", segment.create)
 
     def _clothing_segmenter(self):
-        """The per-thread clothes parser for clothing masks."""
-        existing = getattr(self._local, "clothing", None)
-        if existing is None:
-            existing = clothing.create(quiet=self.cfg.quiet)
-            self._local.clothing = existing
-        return existing
+        return self._mask_model("clothing", clothing.create)
+
+    def _face_parser(self):
+        return self._mask_model("face_parser", face_parse.create)
+
+    def _mask_model(self, name, factory):
+        """Large models are shared; each backend serializes its inference."""
+        with self._mask_models_lock:
+            if name not in self._mask_models:
+                self._mask_models[name] = factory(quiet=self.cfg.quiet)
+            return self._mask_models[name]
 
     # -- entry point ------------------------------------------------------
     def run(self) -> Stats:
@@ -392,8 +394,10 @@ class Pipeline:
             self._face_detector()
         if cfg.mask_background:
             self._segmenter()
-        if cfg.mask_clothing or (cfg.mask_faces and cfg.face_mask == "outline"):
+        if cfg.mask_clothing:
             self._clothing_segmenter()
+        if cfg.mask_faces and cfg.face_mask == "outline":
+            self._face_parser()
 
         try:
             image = images.load_image(path)
@@ -523,7 +527,7 @@ class Pipeline:
 
         face_matte, ovals = None, [f.rect for f in faces]
         if ovals and cfg.face_mask == "outline":
-            face_matte, ovals = masks.face_outline(self._clothing_segmenter().face_matte(bgr), faces)
+            face_matte, ovals = self._face_parser().outline(bgr, faces)
 
         garments = None
         if cfg.mask_clothing:
@@ -1007,7 +1011,10 @@ class Pipeline:
             self.stats.skipped_no_face += 1
 
     def _close_detectors(self) -> None:
-        for attr in ("detector", "face_detector", "segmenter", "clothing"):
+        for model in self._mask_models.values():
+            model.close()
+        self._mask_models.clear()
+        for attr in ("detector", "face_detector"):
             detector = getattr(self._local, attr, None)
             if detector is not None:
                 detector.close()

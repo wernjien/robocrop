@@ -39,8 +39,13 @@ class StubParser:
     def matte(self, image):
         return self._matte
 
-    def face_matte(self, image):
-        return np.zeros(image.shape[:2], dtype=np.float32)  # no face found: the oval stands in
+    def close(self):
+        pass
+
+
+class StubFaceParser:
+    def outline(self, image, faces):
+        return np.zeros(image.shape[:2], np.float32), [f.rect for f in faces]
 
     def close(self):
         pass
@@ -55,6 +60,9 @@ def parser(monkeypatch):
         return StubParser(holder["matte"])
 
     monkeypatch.setattr(pipeline_module.clothing, "create", fake_create)
+    monkeypatch.setattr(
+        pipeline_module.face_parse, "create", lambda **kwargs: StubFaceParser()
+    )
     return holder
 
 
@@ -74,19 +82,18 @@ def mask_of(tmp_path):
 class StubNet:
     """Upper-clothes wins the top half of the logits, face the bottom half."""
 
-    def setInput(self, blob):
-        assert blob.shape == (1, 3, 512, 512) and blob.dtype == np.float32
-
-    def forward(self):
-        logits = np.zeros((1, 18, 128, 128), dtype=np.float32)
-        logits[0, 4, :64] = 10.0
-        logits[0, 11, 64:] = 10.0
-        return logits
+    def run(self, output_names, feed):
+        blob = feed["pixel_values"]
+        assert blob.shape == (1, 3, 576, 384) and blob.dtype == np.float32
+        logits = np.zeros((1, 18, 144, 96), dtype=np.float32)
+        logits[0, 3, :72] = 10.0
+        logits[0, 1, 72:] = 10.0
+        return [logits]
 
 
 def test_parser_sums_the_clothing_classes_into_one_matte():
     parser = ClothingSegmenter.__new__(ClothingSegmenter)
-    parser._net, parser._cached = StubNet(), None
+    parser._run = lambda blob: StubNet().run(None, {"pixel_values": blob})[0]
 
     matte = parser.matte(np.zeros((300, 200, 3), dtype=np.uint8))
 
@@ -96,7 +103,7 @@ def test_parser_sums_the_clothing_classes_into_one_matte():
 
 
 def test_clothing_classes_leave_the_body_out():
-    face, hair, limbs = 11, 2, (12, 13, 14, 15)
+    face, hair, limbs = 1, 2, (12, 13, 14, 15, 16)
     assert not {face, hair, *limbs} & set(CLOTHING_CLASSES)
 
 
@@ -182,7 +189,7 @@ def test_clothing_only_runs_neither_face_detector_nor_matting(tmp_path, stubs, p
     assert segmenter["created"] == 0
 
 
-def test_no_parser_without_clothing_or_outline_face_masks(tmp_path, stubs, parser):
+def test_no_clothing_parser_for_oval_face_masks(tmp_path, stubs, parser):
     make_photo(tmp_path / "photos" / "a.png")
 
     Pipeline(base_config(tmp_path, mask_faces=True, face_mask="oval")).run()
@@ -217,5 +224,23 @@ def test_clothing_flags_parse(tmp_path, monkeypatch):
     assert cfg.mask_clothing and cfg.clothing_weight == 0.2 and cfg.writes_masks
 
 
-def test_segformer_caches_under_its_own_name():
-    assert models.REGISTRY["segformer_clothes"].cache_name == "segformer_b2_clothes.onnx"
+def test_fashn_caches_under_its_own_name():
+    assert models.REGISTRY["fashn_clothes"].cache_name == "fashn_human_parser.onnx"
+
+
+def test_class_confidence_is_not_treated_as_opacity_on_bare_skin():
+    parser = ClothingSegmenter.__new__(ClothingSegmenter)
+    # Each band's clothing sum: .05 on bare skin, .5 at an uncertain edge,
+    # and .95 on clothing. The rest belongs to face/skin or background.
+    probs = np.full((1, 18, 144, 96), 1e-6, np.float32)
+    for start, end, mass in [(0, 48, .05), (48, 96, .5), (96, 144, .95)]:
+        probs[0, list(CLOTHING_CLASSES), start:end] = mass / len(CLOTHING_CLASSES)
+        probs[0, 1, start:end] = 1 - mass
+    parser._run = lambda blob: np.log(probs)
+    matte = parser.matte(np.zeros((576, 384, 3), np.uint8))
+    assert matte[50, 192] == 0.0
+    assert matte[288, 192] == pytest.approx(0.5, abs=1e-4)
+    assert matte[526, 192] == 1.0
+    weights = build_mask((384, 576), [], 0.35, clothing=matte, clothing_weight=0.25)
+    assert weights.getpixel((192, 50)) == 255
+    assert weights.getpixel((192, 526)) == round(0.25 * 255)

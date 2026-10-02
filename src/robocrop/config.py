@@ -56,7 +56,7 @@ class Config:
     in it, so masked training learns body, outfit and style but not identity.
     Needs a body/object detector; a face detector's crops would be all mask."""
     face_mask: str = "outline"
-    """outline: the face's own shape, from the clothes parser | oval: an ellipse over the head."""
+    """outline: SegFace facial parts | oval: an ellipse over the head."""
     mask_margin: float = 0.35   # fraction of the face box added to EACH side, for oval masks
     mask_missing: str = "skip"  # skip | keep -- a crop where no face was found
     mask_min_score: float = 0.5

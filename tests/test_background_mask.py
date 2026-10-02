@@ -205,6 +205,6 @@ def test_background_weight_must_be_a_fraction(weight):
         Config(background_weight=weight).validate()
 
 
-def test_modnet_caches_under_its_own_name():
-    assert models.REGISTRY["modnet"].cache_name == "modnet_photographic_portrait_matting.onnx"
+def test_birefnet_caches_under_its_own_name():
+    assert models.REGISTRY["birefnet_matting"].cache_name == "birefnet_matting.onnx"
     assert models.REGISTRY["yolox"].cache_name == "object_detection_yolox_2022nov.onnx"

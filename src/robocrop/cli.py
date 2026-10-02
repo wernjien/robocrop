@@ -251,8 +251,7 @@ def build_parser() -> argparse.ArgumentParser:
              "face out of training, to learn a body, outfit or style but not "
              "the face; needs a body detector such as yolox, or --no-crop")
     add(mask, "--face-mask", choices=("outline", "oval"),
-        help="shape of the face mask: the face's own outline, found with the "
-             "clothes parser, or an oval over the whole head "
+        help="shape of the face mask: SegFace facial parts, or an oval over the whole head "
              f"(default: {_default('face_mask')})")
     add(mask, "--mask-margin", type=float, metavar="PCT",
         help="with --face-mask oval, percent of the face box added to every side "

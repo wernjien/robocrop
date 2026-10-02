@@ -1,12 +1,12 @@
 """Download-once, cache-forever model files.
 
-Detector weights are a few hundred kilobytes each and are not shipped with
-OpenCV 5 or MediaPipe 1.x, so they are fetched on first use into
-``~/.cache/robocrop/models`` (override with ``ROBOCROP_CACHE``).
+Model weights are not shipped with the inference libraries, so they are fetched
+on first use into ``~/.cache/robocrop/models`` (override with
+``ROBOCROP_CACHE``).
 
 Every file is checked against a pinned SHA-256 before it is cached, so a
 truncated download, an HTML error page, or a file swapped upstream is
-refused rather than loaded into OpenCV.
+refused rather than loaded for inference.
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ _OPENCV_ZOO = "https://github.com/opencv/opencv_zoo/raw/main/models"
 _OPENCV_DATA = "https://raw.githubusercontent.com/opencv/opencv/4.x/data"
 _FSRCNN = "https://github.com/Saafke/FSRCNN_Tensorflow/raw/master/models"
 # Pinned to a commit rather than main, so the file cannot change under us.
-_MODNET = "https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx"
-_SEGFORMER_CLOTHES = "https://huggingface.co/mattmdjaga/segformer_b2_clothes/resolve/584abc1e1d260e23c0fc627c5217a09b2b461046/onnx"
+_BIREFNET = "https://huggingface.co/Grazier/birefnet-matting-deformconv/resolve/dcf5090bd129e29d527362bdc1234e23fbc215b1"
+_FASHN = "https://huggingface.co/faisal-shohag/fashn-human-parser-onnx/resolve/153ad2092f3eadd6f9b06b32471f4fa0a4a899d9/onnx"
+_SEGFACE = "https://huggingface.co/kartiknarayan/SegFace/resolve/5e093b03c0523f7f32a9845bbbc75ecb027c8bee/swinb_celeba_512"
 
 
 class Model(NamedTuple):
@@ -62,15 +63,20 @@ REGISTRY: dict[str, Model] = {
         f"{_FSRCNN}/FSRCNN_x2.pb",
         "366b33f0084c7b3f2bf6724f0a2c77bca94fcec9d7b6d72389d330073b380d5c",
     ),
-    "modnet": Model(
-        f"{_MODNET}/model.onnx",
-        "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9",
-        "modnet_photographic_portrait_matting.onnx",
+    "birefnet_matting": Model(
+        f"{_BIREFNET}/birefnet_matting_deformconv.onnx",
+        "5aae0819fdb4521ec4c8914a4f898a8d83d2fae5edb91753a306712e6ea2bd42",
+        "birefnet_matting.onnx",
     ),
-    "segformer_clothes": Model(
-        f"{_SEGFORMER_CLOTHES}/model.onnx",
-        "a93a8dac171b5c1fcc53632a8bfc180bfd9759ea69a3e207451bb07f76add54f",
-        "segformer_b2_clothes.onnx",
+    "fashn_clothes": Model(
+        f"{_FASHN}/model.onnx",
+        "b05324a0b4a249530da089c1259099bf4823f6ae654dd7b550f6f36ccbe23cda",
+        "fashn_human_parser.onnx",
+    ),
+    "segface": Model(
+        f"{_SEGFACE}/model_299.pt",
+        "320b1c167191804913323b229a5256b1fc71f1987161fc54dc440e59af45dae8",
+        "segface_swin_celeba.pt",
     ),
 }
 

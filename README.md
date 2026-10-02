@@ -45,6 +45,9 @@ newer and Git, skip to step 2.
 
 ### 1. Install Python and Git
 
+On Mac, the current dependencies require Apple silicon and macOS 14 or newer;
+see [platform requirements](docs/install.md#what-gets-downloaded).
+
 **Windows**
 
 1. Install Python from <https://www.python.org/downloads/>. On the first
@@ -385,9 +388,10 @@ be combined with `--mask-dir`.
 #### Masking faces
 
 `--mask-faces` lets a model learn a body, outfit or style without the person's
-identity. Every face in each crop is masked black along its own outline down
-to the chin, found with the clothes parser (a 110 MB download the first time);
-the hair and neck stay learned. The image itself is left alone, because
+identity. [SegFace](https://github.com/Kartik-3004/SegFace) parses each detected
+face separately at 512 x 512, masking the skin, facial features, ears and
+glasses while keeping hair and neck learned. Its Swin-B checkpoint (about
+1.1 GB) downloads the first time. The image itself is left alone, because
 blurring or covering the face would teach the model a blob for a face.
 
 ```bash
@@ -412,8 +416,9 @@ still show, so masking reduces identity leakage but doesn't remove it.
 #### Masking the background
 
 `--mask-background` stops a model from learning the backdrop of a shoot. A
-matting model ([MODNet](https://github.com/ZHKKKe/MODNet)) outlines the detected
-person, and everything else drops to `--background-weight` (default 0.1, and 0
+matting model ([BiRefNet-matting](https://github.com/ZhengPeng7/BiRefNet))
+outlines the detected person, and everything else drops to
+`--background-weight` (default 0.1, and 0
 ignores the background completely).
 
 ```bash
@@ -428,9 +433,9 @@ outline is found, the detection box is used instead, and the crop's row in
 
 `--mask-clothing` lets a model learn the person without their outfits. A
 clothes parser
-([SegFormer-B2](https://huggingface.co/mattmdjaga/segformer_b2_clothes)) finds
-hats, sunglasses, tops, skirts, trousers, dresses, belts, shoes, bags and
-scarves, and drops them to `--clothing-weight` (default 0). The mask reaches
+([FASHN Human Parser](https://huggingface.co/fashn-ai/fashn-human-parser)) finds
+hats, glasses, tops, skirts, trousers, dresses, belts, bags, scarves and
+jewelry, and drops them to `--clothing-weight` (default 0). The mask reaches
 slightly past each garment's edge, so the outline isn't learned either.
 
 ```bash
@@ -438,10 +443,19 @@ slightly past each garment's edge, so the outline isn't learned either.
 ```
 
 `masked_clothing` in `manifest.jsonl` is the fraction of each crop that was
-masked as clothing.
+masked as clothing. FASHN has no separate shoe class; its feet class stays
+learned so bare feet are not accidentally masked.
 
 The background and clothing masks both look for people, so with `yolox` the
 class list must include `person`.
+
+The background model downloads about 930 MB and the clothing model about
+257 MB on first use. Each mask model is shared across crop workers to bound
+memory use. BiRefNet and FASHN use ONNX Runtime CPU; SegFace uses CUDA or
+Apple MPS when available, otherwise CPU. These models favor accuracy and
+cost more memory and processing time than the earlier mask models. See
+[mask model details](docs/mask-models.md) for pinned exports, class mappings
+and license terms, including FASHN's non-commercial restriction.
 
 #### The OneTrainer config
 
