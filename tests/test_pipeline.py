@@ -85,7 +85,8 @@ def base_config(tmp_path, **overrides):
 # -- sizing ---------------------------------------------------------------
 @pytest.mark.parametrize(
     "side, expected_size",
-    [(1200, 1024), (820, 1024), (700, 768), (615, 768), (500, 512), (410, 512)],
+    [(1200, 1024), (820, 1024), (700, 768), (615, 768), (500, 512), (410, 512),
+     (409, 256), (300, 256), (205, 256), (204.8, 256)],
 )
 def test_crop_is_written_at_the_largest_qualifying_size(tmp_path, stub, side, expected_size):
     make_photo(tmp_path / "photos" / "a.png")
@@ -100,7 +101,7 @@ def test_crop_is_written_at_the_largest_qualifying_size(tmp_path, stub, side, ex
 
 def test_faces_below_the_floor_produce_nothing(tmp_path, stub):
     make_photo(tmp_path / "photos" / "a.png")
-    stub._current = [face(100, 100, 300)]     # under 80% of 512
+    stub._current = [face(100, 100, 204)]     # under 80% of 256
 
     stats = Pipeline(base_config(tmp_path)).run()
 
@@ -111,7 +112,7 @@ def test_faces_below_the_floor_produce_nothing(tmp_path, stub):
 
 def test_skip_reason_is_recorded_in_the_summary(tmp_path, stub):
     make_photo(tmp_path / "photos" / "a.png")
-    stub._current = [face(100, 100, 300)]
+    stub._current = [face(100, 100, 204)]
 
     Pipeline(base_config(tmp_path)).run()
 
@@ -197,12 +198,13 @@ def test_prefix_digits_and_format_are_honoured(tmp_path, stub):
 
 def test_per_size_dirs_split_the_output(tmp_path, stub):
     make_photo(tmp_path / "photos" / "a.png")
-    stub._current = [face(1000, 800, 1000), face(0, 0, 600)]
+    stub._current = [face(1000, 800, 1000), face(0, 0, 600), face(1500, 500, 300)]
 
     Pipeline(base_config(tmp_path, per_size_dirs=True)).run()
 
     assert (tmp_path / "out" / "1024" / "0001.png").exists()
     assert (tmp_path / "out" / "512" / "0002.png").exists()
+    assert (tmp_path / "out" / "256" / "0003.png").exists()
 
 
 def test_excluded_paths_are_not_scanned(tmp_path, stub):
@@ -400,20 +402,25 @@ def test_training_config_off_by_default(tmp_path, stub, monkeypatch):
     assert not (tmp_path / "out" / "training_config.json").exists()
 
 
-def test_training_config_uses_smallest_tier_and_computed_epochs(tmp_path, stub, monkeypatch):
+@pytest.mark.parametrize("smaller_side, expected_resolution", [(700, "768"), (300, "256")])
+def test_training_config_uses_smallest_tier_and_computed_epochs(
+    tmp_path, stub, monkeypatch, smaller_side, expected_resolution,
+):
     monkeypatch.setattr(
         pipeline_module, "ONETRAINER_TEMPLATE_PATH",
         _write_onetrainer_template(tmp_path, batch_size=2),
     )
     make_photo(tmp_path / "photos" / "a.png")
-    # 15 crops land at tier 1024, 15 at tier 768 -> 30 images total.
-    stub._current = [face(0, 0, 1000) for _ in range(15)] + [face(0, 0, 700) for _ in range(15)]
+    # 15 large crops, 15 smaller crops -> 30 images total.
+    stub._current = [face(0, 0, 1000) for _ in range(15)] + [
+        face(0, 0, smaller_side) for _ in range(15)
+    ]
 
     stats = Pipeline(base_config(tmp_path, training_config=True)).run()
 
     assert stats.written == 30
     written = json.loads((tmp_path / "out" / "training_config.json").read_text())
-    assert written["resolution"] == "768"          # the smaller of the two tiers produced
+    assert written["resolution"] == expected_resolution
     assert written["epochs"] == 267                # round(4000 * 2 / 30)
 
 
@@ -463,7 +470,7 @@ def test_training_config_skipped_when_nothing_is_written(tmp_path, stub, monkeyp
         pipeline_module, "ONETRAINER_TEMPLATE_PATH", _write_onetrainer_template(tmp_path)
     )
     make_photo(tmp_path / "photos" / "a.png")
-    stub._current = [face(100, 100, 300)]           # below the floor for every tier
+    stub._current = [face(100, 100, 204)]           # below the floor for every tier
 
     stats = Pipeline(base_config(tmp_path, training_config=True)).run()
 

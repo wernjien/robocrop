@@ -39,6 +39,18 @@ def test_plan_whole_rejects_a_photo_too_small_for_any_size():
         plan_whole(300, 200, sizes=(512, 768, 1024))
 
 
+def test_default_no_crop_keeps_a_small_photo_at_the_256_tier(tmp_path, stub):
+    stub._current = [Region(rect=Rect(50, 50, 100, 100), score=0.9, label="person")]
+    make_photo(tmp_path / "photos" / "a.png", size=(300, 200))
+
+    stats = Pipeline(base_config(tmp_path, no_crop=True)).run()
+
+    assert stats.written == 1
+    with Image.open(tmp_path / "out" / "0001.png") as image:
+        assert image.size == (256, 171)
+    assert rows(tmp_path)[0]["tier"] == 256
+
+
 def test_one_whole_photo_per_image_with_several_detections(tmp_path, stub):
     stub._current = [PERSON, Region(rect=Rect(2500, 500, 800, 1600), score=0.9, label="person")]
     make_photo(tmp_path / "photos" / "a.png")

@@ -10,6 +10,13 @@ from robocrop.cli import build_config  # noqa: E402
 from robocrop.config import Config  # noqa: E402
 
 
+def test_cli_sizes_override_an_older_settings_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "robocrop.toml").write_text('sizes = [512, 768, 1024]\n')
+    assert build_config([]).sizes == (512, 768, 1024)
+    assert build_config(["--sizes", "256,512,768,1024"]).sizes == (256, 512, 768, 1024)
+
+
 @pytest.mark.parametrize("field", ["padding", "mask_margin", "min_sharpness", "offset_x", "offset_y"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_nonfinite_geometry_settings_are_rejected(field, value):

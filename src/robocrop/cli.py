@@ -53,7 +53,7 @@ examples:
   # learn the person, not the outfits they were photographed in
   robocrop -i ./photos -o ./dataset --mask-clothing --training-config
 
-  # see what would happen, without writing anything or loading a model
+  # preview counts and skips without saving a dataset or loading a caption model
   robocrop -i ./photos -o ./dataset --dry-run
 
   # force a single output size and accept smaller objects
@@ -160,7 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="robocrop",
         description=(
             "Find and crop objects (faces, bodies, animals, or any COCO class) "
-            "square at 512/768/1024, and write a caption beside each crop, "
+            f"square at {_default('sizes').replace(',', '/')} by default, "
+            "and write a caption beside each crop, "
             "ready for training an image model."
         ),
         epilog=EPILOG,
@@ -249,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     add(mask, "--mask-faces", action="store_true",
         help="write a NAME-masklabel.png beside each crop that masks every "
              "face out of training, to learn a body, outfit or style but not "
-             "the face; needs a body detector such as yolox, or --no-crop")
+             "the face; needs a body detector such as yolox, or --no-crop / --keep-size")
     add(mask, "--face-mask", choices=("outline", "oval"),
         help="shape of the face mask: SegFace facial parts, or an oval over the whole head "
              f"(default: {_default('face_mask')})")
@@ -258,8 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
              f"of the oval, to cover hair, ears and jaw (default: {_default_pct('mask_margin')})")
     add(mask, "--mask-missing", choices=("skip", "keep"),
         help="crops where no face was found (back of the head, strong "
-             "profile, face out of frame): skip them, or keep them with "
-             f"nothing masked (default: {_default('mask_missing')})")
+             "profile, face out of frame): skip them, or keep them without "
+             f"face masking (default: {_default('mask_missing')})")
     add(mask, "--mask-min-score", type=float, metavar="F",
         help="face confidence needed to mask it; lower misses fewer faces "
              f"(default: {_default('mask_min_score')})")
@@ -293,7 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
     add(out, "--quality", type=int, metavar="N",
         help=f"quality for jpg/webp, 1-100 (default: {_default('quality')})")
     add(out, "--per-size-dirs", action="store_true",
-        help="write into 512/, 768/, 1024/ subdirectories")
+        help="group crops in subdirectories named for their output size")
 
     cap = parser.add_argument_group("captions")
     add(cap, "-c", "--captioner", choices=captioners.available(), metavar="NAME",
@@ -330,8 +331,8 @@ def build_parser() -> argparse.ArgumentParser:
     add(tc, "--training-config", action="store_true",
         help="write training_config.json into the output dir: a copy of "
              "robocrop.onetrainer.example.json with 'resolution' set to the "
-             "smallest tier produced and 'epochs' computed from the crop "
-             "count (targets ~4000 steps)")
+             "smallest tier produced (native sizes keep the template's value) "
+             "and 'epochs' computed from the crop count (targets ~4000 steps)")
     add(tc, "--training-config-only", action="store_true",
         help="only (re)generate training_config.json for an existing "
              "--output dataset, reading manifest.jsonl; no cropping or "
@@ -341,13 +342,14 @@ def build_parser() -> argparse.ArgumentParser:
     add(run, "-j", "--workers", type=int, metavar="N",
         help="threads for the detect/crop pass (0 = auto)")
     add(run, "-n", "--dry-run", action="store_true",
-        help="report what would be produced; writes nothing and loads no "
-             "caption model (detection models still run, to report real results)")
+        help="preview counts and skips without saving a dataset or loading a "
+             "caption model; processing models still run and may download")
     add(run, "--resume", action="store_true",
         help="continue a previous run, skipping sources already in the manifest")
     add(run, "--overwrite", action="store_true",
-        help="replace an existing output directory's files")
-    add(run, "-q", "--quiet", action="store_true", help="only report errors")
+        help="delete the previous run's recorded crops, captions and masks "
+             "before starting again; other files are kept")
+    add(run, "-q", "--quiet", action="store_true", help="only report warnings and errors")
     add(run, "-v", "--verbose", action="store_true", help="log every crop")
     add(run, "--list-models", action="store_true",
         help="show the caption model presets and exit")

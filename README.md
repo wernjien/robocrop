@@ -4,7 +4,8 @@
 
 RoboCrop turns a folder of photos into a dataset for training an image model.
 It finds the faces (or bodies, animals or other objects) in every photo, crops
-each one to a 512, 768 or 1024 px square, and writes a caption beside it.
+each one to a 256, 512, 768 or 1024 px square by default, and writes a caption
+beside it. You can choose other sizes or keep whole photos.
 
 ```
 dataset/
@@ -40,8 +41,12 @@ your own computer.
 
 ## Install
 
-You need about 6 GB of free disk space. If you already have Python 3.11 or
-newer and Git, skip to step 2.
+Allow about 6 GB of free disk space for the default setup and caption model,
+plus space for your photos and dataset. Linux libraries, larger caption models
+and optional masks need more space. Default captioning also needs roughly
+6–8 GB of free memory; `--captioner template` avoids loading a caption model.
+See [download and memory requirements](docs/install.md#what-gets-downloaded).
+If you already have Python 3.11 or newer and Git, skip to step 2.
 
 ### 1. Install Python and Git
 
@@ -83,7 +88,7 @@ Open **Terminal** (press Cmd + Space and type `Terminal`), then:
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 python3-venv python-is-python3 libgl1
+sudo apt install -y git python3 python3-venv python-is-python3 libgl1 libglib2.0-0
 ```
 
 On any system, `python --version` should now show 3.11 or newer, and
@@ -100,8 +105,13 @@ cd robocrop
 ### 3. Run the first-time setup
 
 ```bash
-./robocrop --setup          # Mac and Linux
-.\robocrop.cmd --setup      # Windows
+./robocrop --setup
+```
+
+On Windows, use PowerShell:
+
+```powershell
+.\robocrop.cmd --setup
 ```
 
 This creates a private environment in `robocrop/.venv` and downloads about
@@ -119,20 +129,22 @@ Put a few photos of a person in `~/Pictures/test-photos`, then run:
 ```
 
 On Windows, type `.\robocrop.cmd` instead of `./robocrop`, here and in every
-other example.
+other example. Replace the example paths with your own folders; Windows
+Pictures folders may be under OneDrive. Put quotes around paths with spaces.
 
 The first run that writes captions downloads the caption model, about 4.5 GB.
 To skip it, add `--captioner template` for simpler captions without a model.
 Each crop is saved as a `.png` with its caption in a `.txt` file of the same
-name.
+name. Open a few crops and captions to check the framing and descriptions
+before processing your full collection.
 
 If something goes wrong, see the [FAQ](docs/faq.md).
 
 ## Usage
 
-Run RoboCrop from the `robocrop` folder. Every run loads `robocrop.toml`, so
-settings you always want can go there instead of on the command line (see
-[Settings file](#settings-file)). Flags win over the file.
+Run RoboCrop from the `robocrop` folder. Every run loads `robocrop.toml` if it
+exists, so settings you always want can go there instead of on the command
+line (see [Settings file](#settings-file)). Flags win over the file.
 `./robocrop --help` lists every option.
 
 ```bash
@@ -149,18 +161,24 @@ settings you always want can go there instead of on the command line (see
 # Keep whole photos, resized, instead of cropping them
 ./robocrop -i ~/Pictures/portraits -o ./dataset --no-crop
 
-# Keep photos at their own size, cutting any over 1536 px around the subject
+# Keep whole photos at their own size, shrinking any over 1536 px
 ./robocrop -i ~/Pictures/portraits -o ./dataset --keep-size
 
 # Mask faces out of training, so the model learns the outfit, not the person
 ./robocrop -i ~/Pictures/bodies -o ./dataset --detector yolox --detector-opt classes=person --mask-faces --training-config
 
-# Show what would be cropped, without writing anything
+# Preview crop counts and skips without saving a dataset
 ./robocrop -i ~/Pictures/portraits -o ./dataset --dry-run
 ```
 
-The rest of this README goes deeper into each of these, plus every other
-setting.
+Examples are separate runs: choose a new output folder for each trial.
+To check the actual images, add `--limit 10 --captioner template` and inspect
+the small dataset first. A dry run performs detection, resizing and blur
+checks, plus any requested masks, but saves no dataset and skips captioning.
+It can still download processing models and the launcher can install libraries.
+
+The reference below explains the main settings. Use `./robocrop --help` for
+the complete option list.
 
 ## Reference
 
@@ -177,22 +195,57 @@ Keys are the flag names with dashes turned into underscores, except `multi`
 (`--multi-face`) and `detector_opts` (`--detector-opt`). `robocrop.toml` is
 listed in `.gitignore`.
 
+For example, use these settings in `robocrop.toml` for the default crop sizes
+and simple captions:
+
+```toml
+input = "~/Pictures/portraits"
+output = "./dataset"
+sizes = [256, 512, 768, 1024]
+captioner = "template"
+```
+
+`padding` and `mask_margin` are percentages in both the file and CLI (for
+example, `padding = 20`). Relative paths are resolved from the folder where
+you run the command, even when the settings file is elsewhere. To turn off a
+setting such as `mask_faces = true`, edit it to `false`; the CLI has no
+`--no-mask-faces` flag.
+
 ### Crop size
 
-Each crop gets the largest size (512, 768 or 1024 by default) that the detected
-object fills to at least `--min-ratio` (default 0.8), measured before padding.
-Objects too small for the smallest size are skipped and listed in
-`manifest.json`, so no crop is enlarged more than 1.25x.
+Each detection produces one crop at the largest eligible size, rather than a
+copy at every size. By default, eligibility uses the detection's longer side
+before padding: it must reach `--min-ratio` (default 0.8) of the output size.
 
-`--sizes` changes the sizes: `--sizes 256,512,768,1024` also allows 256 px
-crops, and `--sizes 768,1024` drops 512. The generated OneTrainer config trains
-at the smallest size in the dataset, so a single 256 px crop lowers it to 256.
+| Output size | Minimum detection size with the defaults |
+|---|---|
+| 256 × 256 | 204.8 px |
+| 512 × 512 | 409.6 px |
+| 768 × 768 | 614.4 px |
+| 1024 × 1024 | 819.2 px |
+
+For example, a 700 px detection gets a 768 px crop. Smaller detections that
+cannot reach 256 px are skipped and listed in `manifest.json`. With the
+default ratio, qualifying crops need at most about 1.25× enlargement.
+
+All four sizes follow the same selection rule. The default list is equivalent to:
+
+```bash
+./robocrop -i ./photos -o ./dataset --sizes 256,512,768,1024
+```
+
+This admits detections down to 204.8 px at the default ratio. Use `--sizes 768`
+for only 768 px crops, or `--sizes 512,768,1024` to omit 256 px. Sizes must be a
+comma-separated list of positive integers. `--per-size-dirs` groups outputs
+in folders named for the sizes actually produced: `256/`, `512/`, `768/` or `1024/`.
+The generated OneTrainer config uses the smallest size produced, so a single
+256 px crop sets its training resolution to 256.
 
 A crop that doesn't quite fill its size is enlarged with a plain resize.
 `--upscale` uses FSRCNN, a small AI upscaler, instead. FSRCNN enlarges 2x in one
 pass. The standard install includes `opencv-contrib-python`, so `--upscale` is
 ready to use without swapping OpenCV packages. Keep `--min-ratio` above 0.5;
-RoboCrop warns you if it isn't.
+RoboCrop warns when `--upscale` is enabled and the ratio is below 0.5.
 
 ### Keeping whole photos
 
@@ -200,8 +253,10 @@ RoboCrop warns you if it isn't.
 shape is kept, and its long side is resized to the largest size it reaches, so
 a 4000×3000 photo becomes 1024×768. Photos with no detection are still skipped,
 and each photo gives one output however many people are in it. Padding and
-framing options don't apply, and the blur check scores only the detected
-subject.
+framing options don't apply, and the blur check scores the largest retained
+detection. `--sizes` and `--min-ratio` are checked against the whole photo's
+long side, so small photos can be skipped or slightly enlarged. Multi-subject
+filters still apply: `--multi-face skip` can skip a group photo.
 
 ### Keeping native size
 
@@ -217,28 +272,32 @@ subject.
 ```
 
 As with `--no-crop`, each photo gives one output, and photos with no detection
-are skipped. Because the sizes vary, `--training-config` keeps the template's
+are skipped. Padding, framing, `--sizes` and `--min-ratio` don't determine the
+output dimensions in this mode. `--keep-size` and `--no-crop` cannot be used
+together. Because the sizes vary, `--training-config` keeps the template's
 `resolution` instead of setting it; check it's what you want to train at.
 
 ### Padding and framing
 
-`--padding` (default 20) adds that percentage of the object's size to every
-side, so `--padding 10` turns a 400 px face into a 480 px crop.
+`--padding` (default 20) adds that percentage of the detection's longer side
+to every side. With `--padding 10`, a 600 px detection uses a 720 px square
+window before resizing to its chosen output size.
 
 Face detectors shift the crop up slightly to keep the hair in frame.
 `--offset-y` changes the shift: a more negative value gives more headroom, and
 0 turns it off.
 
-When a crop runs off the edge of the photo, it slides back inside. `--edge
-extend` grows the canvas instead and fills the gap (`--fill
-blur|edge|reflect|color`), and `--edge skip` drops the crop.
+When a crop runs off the edge of the photo, it slides back inside. If the
+square is larger than the image can hold, it shrinks to fit. `--edge extend`
+grows the canvas instead and fills the gap with `--fill blur`, `edge`,
+`reflect` or `color`; `--edge skip` drops the crop.
 
 ### Blurry crops
 
 `--min-sharpness` (default 10) drops blurry crops. The score is the variance of
-the Laplacian over the centre of the crop, so a soft background doesn't count
-against a sharp face. In testing, sharp photos scored 15–96 and mildly blurred
-ones 3–6.
+the Laplacian over the centre of the crop, reducing the effect of padding
+and soft backgrounds. It is measured after resizing, and scores vary with
+image content and output size. Check your own crops before raising the cutoff.
 
 Kept crops record their score in `manifest.jsonl` (`sharpness`), and dropped
 ones are listed in `manifest.json` with the reason `blurry`. `--min-sharpness 0`
@@ -265,7 +324,10 @@ my subject, facing right, smiling, blonde short hair, blue t shirt over denim ja
 | `qwen` | ~7.5 GB | The most detailed; needs 16 GB or more of free memory |
 | `blip` | ~1.9 GB | The fastest; short, generic captions, and ignores `--caption-prompt` |
 
-Any Hugging Face image-text-to-text model ID also works.
+You can also supply a compatible Hugging Face image-text-to-text model ID.
+Models that need custom remote code are not supported. `./robocrop --list-models`
+shows the bundled presets. If memory is tight, try `--caption-batch 1`, the
+smaller model, or template captions. Review generated captions before training.
 
 - `--captioner template` uses no model. It builds captions from the head
   direction, lighting and colour it measures, instantly and offline.
@@ -275,8 +337,9 @@ Any Hugging Face image-text-to-text model ID also works.
   adds text at the end.
 - `--caption-drop REGEX` removes matching text, and can be given more than once.
 
-`--caption-only` captions a dataset you already cropped, without cropping again.
-It rewrites every caption, or with `--resume` only adds the missing ones:
+`--caption-only` captions a dataset previously made by RoboCrop, using its
+`manifest.jsonl`; it does not scan an arbitrary folder of images. It rewrites
+every caption, or with `--resume` retries missing or empty caption files:
 
 ```bash
 ./robocrop -o ./dataset --caption-only --captioner vlm
@@ -286,6 +349,7 @@ It rewrites every caption, or with `--resume` only adds the missing ones:
 
 Each face becomes its own crop. `--multi-face largest` keeps only the biggest
 face in each photo, and `--multi-face skip` skips photos with more than one.
+Despite the flag name, these settings also apply to bodies and objects.
 
 ### Detectors
 
@@ -303,7 +367,8 @@ With `yolox`, choose the classes with `--detector-opt classes=`:
 ```
 
 Write spaces in class names as underscores, as in `sports_ball` or
-`dining_table`. `classes=all` crops every class. The 80 classes are:
+`dining_table`. Without a class option, `yolox` finds people only.
+`classes=all` crops every class. The 80 classes are:
 
 ```
 person, bicycle, car, motorcycle, airplane, bus, train, truck, boat,
@@ -324,10 +389,15 @@ teddy bear, hair drier, toothbrush
 are skipped, partly saved photos get their remaining crops, and the numbering
 carries on. Missing or empty caption files are retried; existing captions are
 kept. Resume with the same crop and detector settings as the interrupted run.
+Keep the input path, output layout and mask settings the same too. Photos
+skipped without producing a crop can be checked again during resume.
 
 If the output folder already holds a run, RoboCrop won't start unless you pass
 `--resume` or `--overwrite`. `--overwrite` first deletes the previous run's
 crops, captions and masks, and leaves any other files alone.
+For masks in a separate folder, pass the same `--mask-dir` to remove the old
+masks there too. An existing `training_config.json` is kept unless you add
+`--training-config`; regenerate it if the dataset changes.
 
 The output folder can be inside the input folder, because the scan skips it.
 
@@ -352,8 +422,8 @@ dataset/0001-masklabel.png   its mask
 
 Add `--training-config` to have masked training turned on for you.
 
-**ai-toolkit** and **kohya's sd-scripts** read masks from a separate folder,
-named exactly like their crop. `--mask-dir` writes them that way:
+**ai-toolkit** and **kohya's sd-scripts** can read masks from a separate folder.
+`--mask-dir` writes them as PNGs with the same base name as their crop:
 
 ```bash
 ./robocrop -i ./photos -o ./dataset --mask-clothing --mask-dir ./dataset-masks
@@ -375,8 +445,13 @@ datasets:
 ```
 
 Leave ai-toolkit's `mask_min_value` at 0; raising it gives the masked areas
-some weight back. `--training-config` writes a OneTrainer config, so it can't
-be combined with `--mask-dir`.
+some weight back. See its [dataset settings](https://github.com/ostris/ai-toolkit/blob/main/toolkit/config_modules.py).
+For kohya's sd-scripts, set `conditioning_data_dir` to the mask folder in
+your dataset subset and enable `--masked_loss`; see its
+[masked-loss guide](https://github.com/kohya-ss/sd-scripts/blob/main/docs/masked_loss_README.md).
+RoboCrop writes masks as PNGs even when crops are JPG or WebP. Configure your
+trainer's filename matching accordingly. `--training-config` writes a
+OneTrainer config, so it can't be combined with `--mask-dir`.
 
 #### Masking faces
 
@@ -392,12 +467,14 @@ blurring or covering the face would teach the model a blob for a face.
 ```
 
 - `--face-mask oval` masks an oval over the whole head instead, hair and ears
-  included. A face the parser can't find, such as a strong profile, gets the
-  oval either way.
+  included. In outline mode, a detected face that the parser cannot outline
+  gets an oval fallback. A face missed by the detector cannot get that fallback.
 - `--mask-margin` (default 35) is the percentage of the face box added around
   the oval.
-- `--mask-missing` (default `skip`) drops crops where no face is found, since
-  an unmasked face would be learned. `keep` keeps them unmasked.
+- `--mask-missing` (default `skip`) drops crops where no face is detected.
+  `keep` keeps them without a face mask; background and clothing masks still
+  apply if enabled. This option does not catch a missed face when another
+  face in the crop was detected.
 - `--mask-min-score` (default 0.5) is the face confidence needed to mask a
   face. It's lower than `--min-score` on purpose, because missing a face costs
   more than masking a patch of background.
@@ -410,17 +487,18 @@ still show, so masking reduces identity leakage but doesn't remove it.
 
 `--mask-background` stops a model from learning the backdrop of a shoot. A
 matting model ([BiRefNet-matting](https://github.com/ZhengPeng7/BiRefNet))
-outlines the detected person, and everything else drops to
-`--background-weight` (default 0.1, and 0
-ignores the background completely).
+outlines foreground connected to the detected person, and everything else
+drops to `--background-weight` (default 0.1; 0 ignores it completely).
 
 ```bash
 ./robocrop -i ./photos -o ./dataset --mask-background --training-config
 ```
 
-Other people who don't overlap the detection count as background. When no
-outline is found, the detection box is used instead, and the crop's row in
-`manifest.jsonl` shows `background_mask: "box"`.
+Separate foreground regions outside the selected detection count as
+background. Touching people or objects can remain in the same foreground
+region. Whole-photo modes keep foreground for all retained detections.
+When no matching outline is found, the detection box is used instead, and
+the crop's row in `manifest.jsonl` shows `background_mask: "box"`.
 
 #### Masking clothing
 
@@ -439,6 +517,11 @@ slightly past each garment's edge, so the outline isn't learned either.
 masked as clothing. FASHN has no separate shoe class; its feet class stays
 learned so bare feet are not accidentally masked.
 
+Inspect a few masks alongside their crops before training, especially for
+profiles, small faces and photos with several people. Mask generation does
+not enable masked training in your trainer by itself; use the generated
+OneTrainer config or configure your trainer to read the masks.
+
 The background and clothing masks both look for people, so with `yolox` the
 class list must include `person`.
 
@@ -456,25 +539,33 @@ and license terms, including FASHN's non-commercial restriction.
 a copy of `robocrop.onetrainer.example.json` with these fields filled in from
 the dataset:
 
-- `resolution` is the smallest crop size in the dataset, so OneTrainer never
-  enlarges a crop.
+- `resolution` is the smallest output size recorded in the dataset. Native
+  sizes keep the template's resolution; non-square photos may still need
+  resizing for your trainer's aspect-ratio buckets.
 - `epochs` gives about 4000 training steps in total
   (`4000 * batch_size / images`), kept between 10 and 300.
 - `masked_training`, `unmasked_probability` and `unmasked_weight` are only set
   when the dataset has masks. They make every pixel count exactly as its mask
   says.
 
-Everything else comes from the template, which is set up for LoRA training.
-Edit it for your base model, LoRA rank, optimizer and so on. For a full
+Everything else comes from the template, which is set up for Krea-2 LoRA
+training. RoboCrop does not start training or add the dataset as a OneTrainer
+concept. Set up the dataset concept and check the base model, output paths,
+LoRA rank and optimizer in OneTrainer before training. For a full
 fine-tune, set `training_method` to `FINE_TUNE` and lower `learning_rate` well
 below the LoRA default of `1e-4`.
 
 A dataset with no crops gets no config. To write the config for a dataset you
-already made, without cropping again, run:
+already made with RoboCrop, without cropping again, run:
 
 ```bash
 ./robocrop -o ./dataset --training-config-only
 ```
+
+This reads `manifest.jsonl` and replaces `training_config.json` with a fresh
+copy of the template. Pass your original `--sizes` or `--keep-size` settings
+so its resolution handling matches the dataset. Save any manual config edits
+before regenerating it.
 
 ### Main flags
 
@@ -482,18 +573,22 @@ already made, without cropping again, run:
 -i, --input DIR         folder of photos, searched with all its subfolders
 -o, --output DIR        where the crops go (default ./dataset)
 -p, --padding PCT       percent added to every side (default 20)
--s, --sizes LIST        crop sizes (default 512,768,1024)
+-s, --sizes LIST        crop sizes (default 256,512,768,1024)
     --min-ratio F       how much of a size a detection must fill (default 0.8)
     --min-score F       drop detections below this confidence (default 0.8)
     --min-sharpness F   drop crops below this sharpness, 0 to disable (default 10)
     --upscale           enlarge small crops with AI upscaling
     --no-crop           keep whole photos, resized, instead of cropping
     --keep-size         keep photos at native size, shrunk past --max-side
+    --min-side PX       with --keep-size, minimum long side (default 256)
+    --max-side PX       with --keep-size, maximum long side (default 1536)
 -f, --format FMT        png, jpg or webp (default png)
-    --per-size-dirs     write into 512/, 768/ and 1024/ subfolders
+    --per-size-dirs     group crops in subfolders by their output size
 -d, --detector NAME     yunet, haar or yolox (default yunet)
+    --detector-opt K=V  detector setting, e.g. classes=person (repeatable)
     --multi-face MODE   all, largest or skip (default all)
 -c, --captioner NAME    vlm, template or none (default vlm)
+    --caption-model M   caption model preset or compatible Hugging Face ID
 -t, --trigger WORD      word placed first in every caption
     --caption-only      caption an existing dataset without cropping again
     --mask-faces        mask faces out of training
@@ -502,13 +597,15 @@ already made, without cropping again, run:
     --mask-clothing     mask clothing out of training
     --mask-dir DIR      put the masks in DIR, for ai-toolkit and kohya
     --training-config   write a OneTrainer config beside the crops
+    --training-config-only  regenerate config for an existing RoboCrop dataset
     --exclude GLOB      skip matching paths (repeatable)
     --limit N           stop after N photos
--n, --dry-run           report what would happen, and write nothing
+-n, --dry-run           preview counts and skips without saving a dataset
+-j, --workers N         crop worker threads (0 chooses automatically)
     --resume            continue a previous run
     --overwrite         replace a previous run
     --config FILE       read settings from a TOML file
--q, --quiet             only report errors
+-q, --quiet             only report warnings and errors
 -v, --verbose           log every crop
 ```
 
@@ -521,16 +618,24 @@ git pull
 
 That's all. The next run installs any new libraries by itself, and your
 `robocrop.toml` and datasets are left alone. New settings appear in
-`robocrop.example.toml`; copy any you want into `robocrop.toml`. If you set up
-[`--upscale`](#crop-size), repeat its two install commands afterwards.
+`robocrop.example.toml`; copy any you want into `robocrop.toml`. The standard
+install already includes the libraries for `--upscale`; no extra setup is needed.
+
+If an older `robocrop.toml` lists `sizes = [512, 768, 1024]`, change it to
+`sizes = [256, 512, 768, 1024]` to use all current default sizes. Explicit
+settings continue to override the built-in defaults.
 
 ## More documentation
 
 - [FAQ](docs/faq.md): troubleshooting common errors
 - [Install help](docs/install.md): what gets downloaded, GPU setup, and
   uninstalling
+- [Mask models](docs/mask-models.md): model details, limitations and licenses
 - [Development](docs/development.md): tests, launchers, and adding a detector
 
 ## License
 
 [MIT](LICENSE)
+
+Downloaded models have their own licenses. In particular, the clothing parser
+has a non-commercial restriction; see [mask model licenses](docs/mask-models.md).

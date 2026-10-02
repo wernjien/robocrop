@@ -30,7 +30,7 @@ class Config:
 
     # -- crop geometry ---------------------------------------------------
     padding: float = 0.20       # fraction of the base side, added to EACH side
-    sizes: tuple[int, ...] = (512, 768, 1024)
+    sizes: tuple[int, ...] = (256, 512, 768, 1024)
     min_ratio: float = 0.80
     no_crop: bool = False
     """Keep each whole photo, shape kept and long side resized to a size, rather than cropping it."""

@@ -54,11 +54,12 @@ This is usually a dropped connection. Press Ctrl + C and run the command
 again. If it keeps failing, delete the `.venv` folder inside `robocrop` and
 try once more.
 
-### `caption dependency install failed` on an Intel Mac
+### Dependency installation fails on an Intel Mac
 
-PyTorch no longer supports Intel Macs. Follow
-[Crop without the caption libraries](install.md#crop-without-the-caption-libraries),
-and use `--captioner template`.
+The current core requirements include PyTorch and ONNX Runtime versions
+without Intel Mac wheels. `ROBOCROP_NO_VLM=1` skips caption libraries but
+does not remove those core requirements, so it is not an Intel Mac workaround.
+Use a supported system; see [platform requirements](install.md#what-gets-downloaded).
 
 ### `ImportError: libGL.so.1` or `libgthread-2.0.so.0` (Linux)
 

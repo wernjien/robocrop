@@ -29,7 +29,7 @@ multi     = "all"
 # percent added to every side of the detection
 padding   = 20
 
-sizes     = [512, 768, 1024]
+sizes     = [256, 512, 768, 1024]
 
 # keep each whole photo, shape kept and long side resized to a size above,
 # instead of cropping around the subject
