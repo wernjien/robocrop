@@ -77,6 +77,8 @@ def _head_pose(request: CaptionRequest) -> str:
     it slides toward the nearer eye. The ratio is scale-invariant, so it works
     the same on a 200 px and a 2000 px face.
     """
+    if request.region.label == "image":
+        return ""
     marks = request.region.landmarks
     left, right, nose = marks.get("left_eye"), marks.get("right_eye"), marks.get("nose")
     if not (left and right and nose):

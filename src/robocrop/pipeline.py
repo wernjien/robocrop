@@ -411,7 +411,7 @@ class Pipeline:
         # Outside the per-image error handling on purpose: a model that will
         # not download or load is the run's problem, not this image's, and
         # must stop the run once rather than fail every image in turn.
-        detector = self._detector()
+        detector = None if cfg.skip_detection else self._detector()
         if cfg.mask_faces:
             self._face_detector()
         if cfg.mask_background:
@@ -429,13 +429,23 @@ class Pipeline:
         # An explicit --offset-y wins; otherwise the detector says how its own
         # boxes need recentring.
         offset_y = (
-            cfg.offset_y if cfg.offset_y is not None
+            cfg.offset_y
+            if cfg.offset_y is not None
             else detector.recommended_offset_y
+            if detector is not None
+            else 0.0
         )
         result.offset_y = offset_y
         try:
-            regions = detector.detect(images.to_bgr(image))
-            result.detections = len(regions)
+            if cfg.skip_detection:
+                regions = [
+                    Region(
+                        Rect(0, 0, image.width, image.height), score=0.0, label="image"
+                    )
+                ]
+            else:
+                regions = detector.detect(images.to_bgr(image))
+                result.detections = len(regions)
 
             if not regions:
                 result.skips.append(SkipRecord(str(path), "no_detection"))
@@ -451,7 +461,7 @@ class Pipeline:
             if cfg.max_per_image:
                 regions = regions[: cfg.max_per_image]
             boxes = [r.rect for r in regions]
-            whole = cfg.no_crop or cfg.keep_size
+            whole = cfg.no_crop or cfg.keep_size or cfg.skip_detection
             if whole:
                 regions = regions[:1]  # one output per photo
 
@@ -465,6 +475,13 @@ class Pipeline:
                     elif cfg.no_crop:
                         plan = plan_whole(
                             image.width, image.height, sizes=cfg.sizes, min_ratio=cfg.min_ratio,
+                        )
+                    elif cfg.skip_detection:
+                        plan = plan_native(
+                            image.width,
+                            image.height,
+                            min_side=1,
+                            max_side=max(image.size),
                         )
                     else:
                         plan = plan_crop(
@@ -494,7 +511,11 @@ class Pipeline:
                     inner_fraction = max(0.5, min(1.0, 1.0 / (1.0 + 2.0 * cfg.padding)))
                     sharpness = round(images.measure_sharpness(crop, inner_fraction=inner_fraction), 1)
 
-                if cfg.min_sharpness > 0 and sharpness < cfg.min_sharpness:
+                if (
+                    not cfg.skip_detection
+                    and cfg.min_sharpness > 0
+                    and sharpness < cfg.min_sharpness
+                ):
                     result.skips.append(SkipRecord(
                         str(path), "blurry",
                         f"sharpness {sharpness:.1f} below {cfg.min_sharpness:.1f}",
@@ -1012,7 +1033,11 @@ class Pipeline:
             return
 
         # Native sizes vary per photo, so the smallest could be tiny; the template's value stands.
-        native = self.cfg.keep_size or any(r.tier not in self.cfg.sizes for r in records)
+        native = (
+            self.cfg.keep_size
+            or (self.cfg.skip_detection and not self.cfg.no_crop)
+            or any(r.tier not in self.cfg.sizes for r in records)
+        )
         if not native:
             template["resolution"] = str(min(r.tier for r in records))
         resolution = template.get("resolution")

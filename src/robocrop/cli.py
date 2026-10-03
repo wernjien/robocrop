@@ -203,6 +203,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="cap crops taken from one image (0 = no cap)")
 
     crop = parser.add_argument_group("crop geometry")
+    add(
+        crop,
+        "--skip-detection",
+        action="store_true",
+        help="import whole images without detection, cropping or blur filtering; "
+        "preserve dimensions unless --no-crop or --keep-size requests resizing",
+    )
     add(crop, "--no-crop", action="store_true",
         help="keep each whole photo instead of cropping it: its shape is kept "
              "and its long side resized to the largest --sizes value it reaches; "

@@ -23,6 +23,8 @@ class Config:
 
     # -- detection -------------------------------------------------------
     detector: str = "yunet"
+    skip_detection: bool = False
+    """Import whole images without detecting subjects; preserve dimensions by default."""
     detector_opts: dict[str, Any] = field(default_factory=dict)
     min_score: float = 0.8
     multi: str = "all"          # all | largest | skip
@@ -225,6 +227,12 @@ class Config:
                 )
         if self.no_crop and self.keep_size:
             problems.append("--no-crop and --keep-size are mutually exclusive")
+        if self.skip_detection and self.writes_masks:
+            problems.append("--skip-detection cannot be combined with mask options")
+        if self.skip_detection and (self.caption_only or self.training_config_only):
+            problems.append(
+                "--skip-detection imports new images; do not combine it with manifest-only modes"
+            )
         if self.min_side < 1 or self.max_side < self.min_side:
             problems.append("--min-side must be at least 1, and --max-side at least --min-side")
         if self.overwrite and self.resume:

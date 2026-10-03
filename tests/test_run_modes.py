@@ -15,6 +15,87 @@ from robocrop.pipeline import Pipeline, MANIFEST_NAME, TRAINING_CONFIG_NAME  # n
 from test_pipeline import StubDetector, base_config, face, make_photo, stub  # noqa: E402,F401
 
 
+@pytest.mark.parametrize("size", [(100, 75), (512, 384), (1800, 1200)])
+def test_skip_detection_imports_new_images_with_captions_and_config(
+    tmp_path, monkeypatch, size
+):
+    from robocrop import pipeline as pipeline_module
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("skip-detection must not load a detector")
+
+    monkeypatch.setattr(pipeline_module.detectors, "create", forbidden)
+    make_photo(tmp_path / "photos" / "a.png", size=size)
+    cfg = base_config(
+        tmp_path,
+        skip_detection=True,
+        captioner="template",
+        training_config=True,
+        min_sharpness=10,
+    )
+
+    stats = Pipeline(cfg).run()
+
+    assert stats.written == stats.captioned == 1
+    assert stats.detections == 0
+    with Image.open(tmp_path / "out" / "0001.png") as image:
+        assert image.size == size
+        assert image.getpixel((0, 0)) == (120, 140, 160)
+    caption = (tmp_path / "out" / "0001.txt").read_text()
+    assert caption.strip() and "facing the camera" not in caption
+    record = json.loads((tmp_path / "out" / MANIFEST_NAME).read_text())
+    assert record["label"] == "image"
+    template = json.loads(pipeline_module.ONETRAINER_TEMPLATE_PATH.read_text())
+    training = json.loads((tmp_path / "out" / TRAINING_CONFIG_NAME).read_text())
+    assert training["resolution"] == template["resolution"]
+
+    resumed = Pipeline(base_config(tmp_path, skip_detection=True, resume=True)).run()
+    assert resumed.written == 0
+    assert resumed.skipped_existing == 1
+    recaptioned = Pipeline(
+        base_config(tmp_path, caption_only=True, captioner="template")
+    ).run()
+    assert recaptioned.captioned == 1
+    assert "facing the camera" not in (tmp_path / "out" / "0001.txt").read_text()
+
+
+@pytest.mark.parametrize(
+    "options, expected",
+    [
+        ({"no_crop": True}, (1024, 768)),
+        ({"keep_size": True, "max_side": 800}, (800, 600)),
+    ],
+)
+def test_skip_detection_optional_whole_image_resizing(
+    tmp_path, monkeypatch, options, expected
+):
+    from robocrop import pipeline as pipeline_module
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("skip-detection must not load a detector")
+
+    monkeypatch.setattr(pipeline_module.detectors, "create", forbidden)
+    make_photo(tmp_path / "photos" / "a.png", size=(1200, 900))
+    Pipeline(base_config(tmp_path, skip_detection=True, **options)).run()
+    with Image.open(tmp_path / "out" / "0001.png") as image:
+        assert image.size == expected
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "mask_faces",
+        "mask_background",
+        "mask_clothing",
+        "caption_only",
+        "training_config_only",
+    ],
+)
+def test_skip_detection_rejects_incompatible_options(option):
+    with pytest.raises(ValueError, match="--skip-detection"):
+        Config(skip_detection=True, **{option: True}).validate()
+
+
 def test_captioner_none_is_crop_only(tmp_path, stub):
     make_photo(tmp_path / "photos" / "a.png")
     stub._current = [face(1000, 800, 900)]
