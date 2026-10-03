@@ -5,9 +5,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import pytest  # noqa: E402
+import pytest
 
-from robocrop.captioners.base import BaseCaptioner, clean_caption  # noqa: E402
+from robocrop.captioners.base import BaseCaptioner, clean_caption
 
 
 @pytest.mark.parametrize(
@@ -34,7 +34,10 @@ def test_acronyms_keep_their_capitals():
 
 
 def test_sentence_capital_is_lowered():
-    assert clean_caption("Blonde hair and a denim jacket") == "blonde hair and a denim jacket"
+    assert (
+        clean_caption("Blonde hair and a denim jacket")
+        == "blonde hair and a denim jacket"
+    )
 
 
 class _Fixed(BaseCaptioner):
@@ -112,3 +115,58 @@ def test_deduplication_keeps_first_occurrence_order():
 def test_distinct_phrases_survive():
     got = _caption("close-up, blonde hair, denim jacket, soft lighting")
     assert got == "close-up, blonde hair, denim jacket, soft lighting"
+
+
+def test_natural_sentences_keep_their_structure():
+    got = _caption(
+        "A wooden table stands beside a window, with a vase on top. "
+        "Light falls across the tabletop.",
+        trigger="my subject",
+    )
+    assert got == (
+        "my subject, a wooden table stands beside a window, with a vase on top. "
+        "Light falls across the tabletop"
+    )
+
+
+def _template_request(label, landmarks=None):
+    from PIL import Image
+
+    from robocrop.captioners.base import CaptionRequest
+    from robocrop.detectors.base import Region
+    from robocrop.geometry import Rect
+
+    return CaptionRequest(
+        Image.new("RGB", (64, 64), (128, 128, 128)),
+        "crop.png",
+        Region(Rect(0, 0, 64, 64), 0.9, label, landmarks or {}),
+        64,
+        1,
+    )
+
+
+@pytest.mark.parametrize("label", ["table", "person", "face", "head", "image"])
+def test_template_does_not_invent_head_direction_without_landmarks(label):
+    from robocrop.captioners.template import TemplateCaptioner
+
+    caption = TemplateCaptioner().caption(_template_request(label))
+    assert "facing" not in caption
+    assert ",," not in caption
+    assert "even lighting" in caption
+    assert "natural lighting" not in caption
+
+
+def test_template_omits_pose_when_landmarks_are_incomplete():
+    from robocrop.captioners.template import TemplateCaptioner
+
+    request = _template_request("face", {"left_eye": (20, 20), "right_eye": (40, 20)})
+    assert TemplateCaptioner(template="{pose}").caption(request) == ""
+
+
+def test_template_still_describes_direction_with_face_landmarks():
+    from robocrop.captioners.template import TemplateCaptioner
+
+    request = _template_request(
+        "face", {"left_eye": (20, 20), "right_eye": (40, 20), "nose": (30, 30)}
+    )
+    assert TemplateCaptioner(template="{pose}").caption(request) == "facing the camera"

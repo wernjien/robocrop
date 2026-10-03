@@ -82,7 +82,7 @@ def _head_pose(request: CaptionRequest) -> str:
     marks = request.region.landmarks
     left, right, nose = marks.get("left_eye"), marks.get("right_eye"), marks.get("nose")
     if not (left and right and nose):
-        return "facing the camera"
+        return ""
 
     eye_span = abs(left[0] - right[0])
     if eye_span < 1e-3:
@@ -118,7 +118,7 @@ def _lighting(request: CaptionRequest) -> str:
     elif mean < 0.45:
         level = "moody lighting"
     elif mean < 0.68:
-        level = "even natural lighting"
+        level = "even lighting"
     else:
         level = "bright lighting"
 

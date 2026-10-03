@@ -331,8 +331,19 @@ to the subject:
 ```
 
 ```
-my subject, facing right, smiling, blonde short hair, blue t shirt over denim jacket, soft natural light, white wall
+my subject, a smiling person facing right with short blonde hair and a blue T-shirt under a denim jacket. Soft light falls across the person against a white wall
 ```
+
+The default instruction targets Krea2 training captions and allows concise
+sentences or descriptive phrases. It asks for only clearly visible content:
+objects and scenery get their own descriptions, while people get appearance,
+clothing, pose, and action details when visible. Facial expression and head
+direction are described only when the face is clear; a table should never get
+a "neutral expression." Visible nudity and sexual content are requested in
+literal, uncensored terms. Model safety tuning may still limit the output,
+and the prompt cannot guarantee factual accuracy; check captions against crops.
+An explicit `--caption-prompt` or `caption_prompt` in your config replaces this
+default. Remove that override to use the new instruction.
 
 | `--caption-model` | Download | Notes |
 |---|---|---|
@@ -347,7 +358,9 @@ shows the bundled presets. If memory is tight, try `--caption-batch 1`, the
 smaller model, or template captions. Review generated captions before training.
 
 - `--captioner template` uses no model. It builds captions from the head
-  direction, lighting and colour it measures, instantly and offline.
+  direction, lighting and colour it measures, instantly and offline. Head
+  direction is omitted when facial landmarks are missing; it cannot describe
+  expressions, clothing, or actions.
 - `--captioner none` writes no captions.
 - `--caption-prompt` tells the model what to describe.
 - `--caption-prefix` adds text after the trigger word, and `--caption-suffix`

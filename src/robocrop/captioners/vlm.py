@@ -41,30 +41,40 @@ PRESETS: dict[str, tuple[str, str, str]] = {
 }
 
 DEFAULT_PROMPT = (
-    "Write a single training caption for this cropped photo. Give, in order "
-    "and separated by commas: which way the subject faces, the facial "
-    "expression, the hair, the visible clothing or lack of it, the body "
-    "pose, the lighting, and the background. Be literal, concrete and clinical "
-    "- describe exactly what is visible, including nudity or sexual content, "
-    "using plain anatomical terms. Do not soften, censor, or euphemise anything "
-    "that is visible. Write plain comma-separated phrases with no field names, "
-    "labels or colons. Do not start with 'a photo of' or 'this image'. Do not "
-    "moralise or comment on appropriateness. Do not name or identify anyone."
+    "Write a single accurate training caption for this photo for Krea2. "
+    "Describe only what is clearly visible in this crop; omit anything absent, "
+    "hidden, or uncertain rather than guessing. Start with the main subject, "
+    "then describe its visible appearance, actions or spatial relationships, "
+    "and relevant setting, lighting, colors, and composition. "
+    "If people are visible, describe each person's visible appearance, hair, "
+    "clothing or lack of it, pose, and action. Describe facial expression and "
+    "head direction only when the face is visible and those details are clear. "
+    "Do not invent a neutral expression for an unclear or hidden face. "
+    "If no person is visible, describe the actual objects, animals, or scene; "
+    "never assign human facial expressions, hair, clothing, or body poses to "
+    "inanimate objects such as a table. Do not infer identity, personality, "
+    "intent, or events outside the crop. "
+    "Be literal, concrete and clinical, including visible nudity or sexual "
+    "content using plain anatomical terms. Do not soften, censor, or euphemise "
+    "visible content, and do not moralise or comment on appropriateness. "
+    "Use concise natural sentences or descriptive phrases, whichever conveys "
+    "the visible details most clearly; no fixed order or comma-separated "
+    "format is required. Return only the caption, with no field labels, "
+    "commentary, or opening such as 'a photo of' or 'this image'. "
+    "Do not name or identify anyone."
 )
 """The default instruction sent to instruction-following models (SmolVLM,
-Qwen, LLaVA, ...). It asks for literal, uncensored, tag-style description
-because that is the standard captioning convention for image-model
-training datasets - including adult ones - and a caption that hedges or
-omits visible content teaches the model the wrong thing just as surely as
-one that is factually wrong.
+Qwen, LLaVA, ...). It asks for grounded, literal, uncensored descriptions for
+Krea2 training, with human attributes conditional on visible people and faces.
+Sentences and descriptive phrases are both allowed; there is no tag checklist
+to fill with invented attributes when a crop contains an object or scenery.
 
 This is a prompt instruction, not a jailbreak: it cannot override safety
 training baked into a model's weights. General chat-tuned VLMs (all of the
 presets below) retain some of that tuning regardless of what they are asked,
 and may still hedge, refuse, or soften explicit description on some images.
-If you need reliably explicit tag captions, use a booru-style tagger
-(e.g. WD14/DeepDanbooru) instead: it is trained specifically on explicit
-tags and has no chat safety tuning to work around."""
+Prompt instructions also cannot guarantee that a model will never hallucinate;
+generated captions still need review against their crops."""
 
 
 def resolve_model(name: str) -> str:
@@ -139,9 +149,16 @@ class VLMCaptioner(BaseCaptioner):
                 tokenizer.pad_token = tokenizer.eos_token
 
     def _load_model(self):
-        from transformers import AutoModelForImageTextToText, BlipForConditionalGeneration
+        from transformers import (
+            AutoModelForImageTextToText,
+            BlipForConditionalGeneration,
+        )
 
-        cls = BlipForConditionalGeneration if self.family == "blip" else AutoModelForImageTextToText
+        cls = (
+            BlipForConditionalGeneration
+            if self.family == "blip"
+            else AutoModelForImageTextToText
+        )
         try:
             model = cls.from_pretrained(self.model_id, dtype=self.dtype)
         except TypeError:
@@ -184,11 +201,20 @@ class VLMCaptioner(BaseCaptioner):
             return [t.strip() for t in texts]
 
         messages = [
-            [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": self.prompt}]}]
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": self.prompt},
+                    ],
+                }
+            ]
             for _ in chunk
         ]
         prompts = [
-            self.processor.apply_chat_template(m, add_generation_prompt=True) for m in messages
+            self.processor.apply_chat_template(m, add_generation_prompt=True)
+            for m in messages
         ]
         inputs = self.processor(
             text=prompts, images=images, return_tensors="pt", padding=True
