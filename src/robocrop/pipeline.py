@@ -808,15 +808,30 @@ class Pipeline:
         cfg = self.cfg
         self.records = self._load_manifest_records()
 
+        pending = self.records
+        if cfg.caption_images:
+            by_path = {self._output_path(r.image_file): r for r in self.records}
+            selected = set()
+            for image in cfg.caption_images:
+                path = Path(image).expanduser()
+                path = (cfg.output / path).resolve()
+                if path not in by_path:
+                    raise ValueError(
+                        f"--caption-images: {image!r} is not a dataset image in {MANIFEST_NAME}; "
+                        "use a path relative to --output or an absolute path"
+                    )
+                selected.add(path)
+            pending = [r for path, r in by_path.items() if path in selected]
+
         # caption_file is trusted from the image path, not the manifest, so
         # this also works on rows written with --captioner none.
-        for record in self.records:
+        for record in pending:
             record.caption_file = Path(record.image_file).with_suffix(".txt").as_posix()
 
-        pending = self.records
         if cfg.resume:
-            pending = self._pending_captions(self.records)
-            self.stats.skipped_existing = len(self.records) - len(pending)
+            selected_count = len(pending)
+            pending = self._pending_captions(pending)
+            self.stats.skipped_existing = selected_count - len(pending)
 
         self.stats.scanned = self.stats.written = len(pending)
         self.stats.by_tier = dict(Counter(r.tier for r in pending))

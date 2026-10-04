@@ -122,6 +122,8 @@ class Config:
     caption_only: bool = False
     """Skip detection/cropping; caption an existing --output dataset,
     rebuilding crop regions from its manifest.jsonl."""
+    caption_images: tuple[str, ...] = ()
+    """Limit caption-only mode to these output-relative or absolute image paths."""
 
     # -- validation ------------------------------------------------------
     def validate(self) -> None:
@@ -271,6 +273,10 @@ class Config:
             )
         if self.caption_only and self.captioner == "none":
             problems.append("--caption-only needs a --captioner other than 'none'")
+        if self.caption_images and not self.caption_only:
+            problems.append("--caption-images requires --caption-only")
+        if any(not image.strip() for image in self.caption_images):
+            problems.append("--caption-images paths cannot be empty")
 
         if problems:
             raise ValueError("invalid configuration:\n  - " + "\n  - ".join(problems))
@@ -326,7 +332,7 @@ def _check_template(template: str) -> str:
 
 
 #: Fields that are tuples in the dataclass but lists in TOML.
-_TUPLE_FIELDS = {"sizes", "exclude", "caption_drop", "fill_color"}
+_TUPLE_FIELDS = {"sizes", "exclude", "caption_drop", "caption_images", "fill_color"}
 
 
 def load_toml(path: Path) -> dict[str, Any]:

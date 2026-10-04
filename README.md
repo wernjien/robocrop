@@ -443,6 +443,25 @@ every caption, or with `--resume` retries missing or empty caption files:
 ./robocrop -o ./dataset --caption-only --captioner vlm
 ```
 
+To regenerate captions for just one or a few dataset images with a custom
+prompt, add `--caption-images`:
+
+```bash
+./robocrop -o ./dataset --caption-only --captioner vlm \
+    --caption-images 0001.png 0003.png \
+    --caption-prompt "Describe the visible clothing, pose, and background."
+```
+
+Use image paths relative to `--output` (such as `512/0001.png` when using
+size subdirectories), or absolute paths to dataset images. You can repeat
+`--caption-images`; repeated images are captioned once. Every selected image
+must appear in `manifest.jsonl`, and an unknown selection stops the run before
+any captions are written. Other captions are kept. Omit `--resume` to replace
+existing captions; with it, only missing or empty captions among the selected
+images are retried. `--dry-run` previews the selected count without generating
+captions. Custom prompts require a model that supports them, such as the
+default `smolvlm`; `blip` ignores the prompt.
+
 ### Several faces in one photo
 
 Each face becomes its own crop. `--multi-face largest` keeps only the biggest

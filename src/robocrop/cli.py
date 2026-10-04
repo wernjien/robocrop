@@ -68,6 +68,10 @@ examples:
   # caption an already-cropped --output dataset, no re-detection
   robocrop -o ./dataset --caption-only --captioner vlm
 
+  # regenerate selected captions with a custom instruction
+  robocrop -o ./dataset --caption-only --caption-images 0001.png 0003.png \
+      --caption-prompt "Describe the visible clothing and pose."
+
   # also emit a OneTrainer config for this dataset
   robocrop -i ./photos -o ./dataset --training-config
 
@@ -580,6 +584,15 @@ def build_parser() -> argparse.ArgumentParser:
         "(re)writes .txt files; with --resume, only crops missing a "
         "caption file are captioned",
     )
+    add(
+        cap,
+        "--caption-images",
+        nargs="+",
+        action="extend",
+        metavar="FILE",
+        help="with --caption-only, caption only these dataset images; paths "
+        "relative to --output or absolute paths (repeatable)",
+    )
 
     tc = parser.add_argument_group("training config")
     add(
@@ -735,6 +748,8 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
         args["exclude"] = tuple(args["exclude"])
     if "caption_drop" in args:
         args["caption_drop"] = tuple(args["caption_drop"])
+    if "caption_images" in args:
+        args["caption_images"] = tuple(args["caption_images"])
     if "detector_opt" in args:
         args["detector_opts"] = {
             **settings.get("detector_opts", {}),
