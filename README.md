@@ -441,7 +441,8 @@ instead of loading the full-precision model.
 - `--caption-drop REGEX` removes matching text, and can be given more than once.
 
 `--caption-only` captions a dataset previously made by RoboCrop, using its
-`manifest.jsonl`; it does not scan an arbitrary folder of images. It rewrites
+`manifest.jsonl` (or one recovered with `--rebuild-manifest`); it does not scan
+an arbitrary folder of images. It rewrites
 every caption, or with `--resume` retries missing or empty caption files:
 
 ```bash
@@ -513,6 +514,54 @@ carries on. Missing or empty caption files are retried; existing captions are
 kept. Resume with the same crop and detector settings as the interrupted run.
 Keep the input path, output layout and mask settings the same too. Photos
 skipped without producing a crop can be checked again during resume.
+
+### Recovering a deleted manifest
+
+If your dataset images and captions still exist but `manifest.jsonl` was
+deleted, rebuild it in place:
+
+```bash
+./robocrop --rebuild-manifest
+```
+
+On Windows:
+
+```powershell
+.\robocrop.cmd --rebuild-manifest
+```
+
+The default folder is `./dataset`; use `-o PATH` for another folder (or to
+override an output path in `robocrop.toml`). The command scans images recursively,
+including size subfolders, and pairs each image with its same-stem `.txt`
+caption. Existing images, captions, masks, `manifest.json` and training config
+stay unchanged. Caption text is read into the new manifest; missing or empty
+captions are kept as they are. No detection, cropping or caption generation
+runs, and no models download.
+
+Beside-image `NAME-masklabel.png` masks are recorded and excluded from the image
+scan, as are `NAME-condlabel` conditioning images. For masks stored separately,
+pass the original `--mask-dir PATH`. `--dry-run` previews the recovery without
+writing. An existing manifest is never replaced, and unreadable images,
+captions, mismatched masks or images sharing a caption path stop recovery
+before a manifest is written.
+
+This rebuilds file references, not the original detection results. Rows are
+marked `recovered: true`, numbered in scan order and describe each existing
+image as a whole image. The original source paths, crop coordinates, landmarks,
+detection scores and mask settings cannot be recovered. To restore that
+metadata, restore a backup instead. A rebuilt manifest supports `--caption-only`
+and `--training-config-only`, but cannot resume the original crop run.
+
+To fill missing captions afterwards while preserving nonempty caption files:
+
+```bash
+./robocrop --caption-only --resume
+```
+
+Run recovery on its own: do not combine it with `--resume`, `--overwrite`,
+caption generation, training config generation, image import or mask generation.
+
+### Replacing a previous run
 
 If the output folder already holds a run, RoboCrop won't start unless you pass
 `--resume` or `--overwrite`. `--overwrite` first deletes the previous run's
@@ -713,6 +762,7 @@ before regenerating it.
     --caption-model M   caption model preset or compatible Hugging Face ID
 -t, --trigger WORD      word placed first in every caption
     --caption-only      caption an existing dataset without cropping again
+    --rebuild-manifest  recover a missing manifest; keep existing images and captions
     --skip-detection    import whole images without detection or cropping
     --mask-faces        mask faces out of training
     --face-mask SHAPE   outline (the face's own shape) or oval (default outline)

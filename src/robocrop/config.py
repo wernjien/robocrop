@@ -119,6 +119,8 @@ class Config:
     training_config_only: bool = False
 
     # -- alternate run modes ----------------------------------------------
+    rebuild_manifest: bool = False
+    """Recover file references from --output without changing images or captions."""
     caption_only: bool = False
     """Skip detection/cropping; caption an existing --output dataset,
     rebuilding crop regions from its manifest.jsonl."""
@@ -267,6 +269,25 @@ class Config:
             )
         if self.overwrite and self.resume:
             problems.append("--overwrite and --resume are mutually exclusive")
+        if self.rebuild_manifest:
+            for name in (
+                "caption_only",
+                "training_config_only",
+                "training_config",
+                "skip_detection",
+                "resume",
+                "overwrite",
+            ):
+                if getattr(self, name):
+                    problems.append(
+                        f"--rebuild-manifest cannot be combined with --{name.replace('_', '-')}"
+                    )
+            if self.writes_masks:
+                problems.append(
+                    "--rebuild-manifest reads existing masks; drop mask options"
+                )
+            if self.limit:
+                problems.append("--rebuild-manifest cannot be combined with --limit")
         if self.caption_only and self.training_config_only:
             problems.append(
                 "--caption-only and --training-config-only are mutually exclusive"

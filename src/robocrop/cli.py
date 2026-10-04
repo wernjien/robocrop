@@ -78,6 +78,9 @@ examples:
   # (re)generate just the OneTrainer config for an existing dataset
   robocrop -o ./dataset --training-config-only
 
+  # recover a deleted manifest, keeping existing images and captions
+  robocrop --rebuild-manifest
+
   # loosen or disable the blur check
   robocrop -i ./photos -o ./dataset --min-sharpness 5
   robocrop -i ./photos -o ./dataset --min-sharpness 0
@@ -616,6 +619,13 @@ def build_parser() -> argparse.ArgumentParser:
     run = parser.add_argument_group("run")
     add(
         run,
+        "--rebuild-manifest",
+        action="store_true",
+        help="recreate a missing manifest.jsonl by scanning --output (default ./dataset); "
+        "keep images, captions and masks unchanged; original crop metadata cannot be recovered",
+    )
+    add(
+        run,
         "-j",
         "--workers",
         type=int,
@@ -778,7 +788,9 @@ def build_config(argv: Sequence[str] | None = None) -> Config:
         config.validate()
     except ValueError as exc:
         raise SystemExit(str(exc))
-    if not (config.caption_only or config.training_config_only):
+    if not (
+        config.caption_only or config.training_config_only or config.rebuild_manifest
+    ):
         if not config.input.is_dir():
             raise SystemExit(f"input directory not found: {config.input}")
         if config.input.resolve() == config.output.resolve():
@@ -846,6 +858,15 @@ def _summarise(config: Config, stats, emit) -> None:
     if config.quiet:
         return
 
+    if config.rebuild_manifest:
+        emit(
+            "info",
+            f"\nmanifest rows    {stats.written}\n"
+            f"captions kept    {stats.skipped_existing}\n"
+            f"{'would write' if config.dry_run else 'manifest'}         "
+            f"{config.output / 'manifest.jsonl'}",
+        )
+        return
     if config.training_config_only:
         _summarise_training_config_only(config, stats, emit)
         return

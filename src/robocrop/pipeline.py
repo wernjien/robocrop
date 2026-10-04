@@ -87,6 +87,8 @@ class CropRecord:
     masked_clothing: float = 0.0
     """Fraction of the crop masked as clothing."""
     caption: str = ""
+    recovered: bool = False
+    """File references rebuilt from existing images; original crop metadata is lost."""
 
 
 @dataclass
@@ -224,6 +226,10 @@ class Pipeline:
         started = time.monotonic()
         cfg = self.cfg
 
+        if cfg.rebuild_manifest:
+            self._rebuild_manifest_run()
+            self.stats.seconds = time.monotonic() - started
+            return self.stats
         if cfg.training_config_only:
             self._training_config_only_run()
             self.stats.seconds = time.monotonic() - started
@@ -798,6 +804,105 @@ class Pipeline:
         )
 
     # -- alternate run modes -----------------------------------------------
+    def _rebuild_manifest_run(self) -> None:
+        """Recover existing file pairs, validating everything before writing."""
+        cfg = self.cfg
+        root = cfg.output.resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(f"dataset directory not found: {cfg.output}")
+        manifest = root / MANIFEST_NAME
+        if manifest.exists() or manifest.is_symlink():
+            raise FileExistsError(
+                f"{manifest} already exists; --rebuild-manifest only creates a missing manifest"
+            )
+
+        paths = list(
+            images.iter_images(
+                root, exclude=cfg.exclude, follow_symlinks=cfg.follow_symlinks
+            )
+        )
+        if not paths:
+            raise ValueError(f"no dataset images found under {cfg.output}")
+        caption_paths: set[Path] = set()
+        for index, path in enumerate(paths, 1):
+            image_file = path.relative_to(root).as_posix()
+            self._output_path(image_file)
+            with Image.open(path) as image:
+                width, height = image.size
+                image.verify()
+
+            caption_file = path.with_suffix(".txt").relative_to(root).as_posix()
+            caption_path = self._output_path(caption_file)
+            if caption_path in caption_paths:
+                raise ValueError(
+                    f"multiple images share caption path {caption_file}; "
+                    "give each image a unique stem before rebuilding"
+                )
+            caption_paths.add(caption_path)
+            caption_exists = caption_path.is_file()
+            caption = (
+                caption_path.read_text(encoding="utf-8").strip()
+                if caption_exists
+                else ""
+            )
+
+            mask_file = masks.mask_name(image_file)
+            mask_root = cfg.mask_dir
+            if mask_root is not None:
+                mask_file = f"{path.stem}.png"
+            mask_path = self._output_path(mask_file, mask_root)
+            mask_exists = mask_path.is_file()
+            if mask_exists:
+                with Image.open(mask_path) as mask:
+                    if mask.size != (width, height):
+                        raise ValueError(
+                            f"mask dimensions do not match image: {mask_path}"
+                        )
+                    mask.verify()
+
+            self.records.append(
+                CropRecord(
+                    index=index,
+                    source=str(path),
+                    image_file=image_file,
+                    caption_file=caption_file if caption_exists else None,
+                    tier=max(width, height),
+                    label="image",
+                    score=0.0,
+                    base_side=float(max(width, height)),
+                    fitted_side=float(max(width, height)),
+                    scale=1.0,
+                    sharpness=0.0,
+                    padding=0.0,
+                    offset_y=0.0,
+                    crop=[0.0, 0.0, float(width), float(height)],
+                    clamped=False,
+                    extended=False,
+                    face_index=0,
+                    faces_in_image=0,
+                    mask_file=mask_file if mask_exists else None,
+                    mask_dir=str(mask_root.resolve())
+                    if mask_exists and mask_root
+                    else None,
+                    caption=caption,
+                    recovered=True,
+                )
+            )
+
+        self.stats.scanned = self.stats.written = len(self.records)
+        self.stats.skipped_existing = sum(
+            r.caption_file is not None for r in self.records
+        )
+        self.stats.by_tier = dict(Counter(r.tier for r in self.records))
+        self._emit(
+            "warn",
+            "rebuilt records describe the existing images as whole images; original "
+            "source paths, crop coordinates, detections and landmarks cannot be recovered. "
+            "Use --caption-only or --training-config-only afterwards, not an original-run --resume.",
+        )
+        if not cfg.dry_run:
+            self._rewrite_manifest()
+
     def _caption_only_run(self) -> None:
         """Caption an existing --output dataset without detecting or cropping.
 
@@ -862,8 +967,9 @@ class Pipeline:
         manifest = self.cfg.output / MANIFEST_NAME
         if not manifest.exists():
             raise FileExistsError(
-                f"{manifest} not found; run robocrop without --caption-only / "
-                f"--training-config-only first to produce a dataset"
+                f"{manifest} not found; use --rebuild-manifest if the dataset images "
+                "already exist, or run robocrop without --caption-only / "
+                "--training-config-only first to produce a dataset"
             )
         records = self._read_manifest_records()
         if not records:
@@ -981,6 +1087,12 @@ class Pipeline:
         highest = cfg.start_index - 1
         text = manifest.read_text(encoding="utf-8")
         for line, row in _manifest_lines(manifest):
+            if row.get("recovered"):
+                raise ValueError(
+                    "a rebuilt manifest cannot resume the original crop run; "
+                    "use --caption-only --resume to fill missing captions, "
+                    "or reprocess the original photos into a new output folder"
+                )
             if "source" in row:
                 source = row["source"]
                 saved = self._completed_crops.setdefault(source, set())
