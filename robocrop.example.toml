@@ -130,6 +130,11 @@ captioner     = "vlm"
 # see ./robocrop --list-models for downloads and memory guidance
 caption_model = "smolvlm"
 
+# Optional: replace the entire default prompt with your own instructions.
+# Omit or leave empty to use the default. --caption-prompt overrides this.
+# Applies to instruction-following VLMs; BLIP and template captions ignore it.
+# caption_prompt = "Describe only the visible subject, clothing, and background. Return only the caption."
+
 # optional: a unique word the trained model binds the subject to
 # e.g. "my subject" or leave empty for no trigger
 trigger       = ""

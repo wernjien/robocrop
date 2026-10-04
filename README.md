@@ -314,8 +314,32 @@ to the subject:
 ```
 
 ```
-my subject, facing right, smiling, blonde short hair, blue t shirt over denim jacket, soft natural light, white wall
+my subject, a smiling person facing right with short blonde hair and a blue T-shirt under a denim jacket. Soft light falls across the person against a white wall
 ```
+
+The default prompt asks for a concise training caption describing only what
+is clearly visible in each crop. It covers the subject, appearance, actions,
+setting, lighting, and composition. For people, it includes visible clothing,
+pose, and facial details when clear. It asks the model to omit uncertain details
+and avoid guessing. Check generated captions against their crops before training.
+
+Use `--caption-prompt` to replace the entire default prompt with your own
+instructions for a run:
+
+```bash
+./robocrop -i ./photos -o ./dataset --caption-prompt "Describe only the visible subject, clothing, and background. Return only the caption."
+```
+
+To save your instructions for future runs, set `caption_prompt` in `robocrop.toml`:
+
+```toml
+caption_prompt = "Describe only the visible subject, clothing, and background. Return only the caption."
+```
+
+The command-line prompt takes precedence over the settings file. To return to
+the default, omit `--caption-prompt` and remove or leave empty `caption_prompt`
+in your settings file. Custom prompts work with instruction-following VLMs;
+`blip` ignores them, and the `template` and `none` captioners do not use them.
 
 | `--caption-model` | Download | Notes |
 |---|---|---|
@@ -385,9 +409,11 @@ This preset requires NVIDIA CUDA; it reports an error on CPU or Apple silicon
 instead of loading the full-precision model.
 
 - `--captioner template` uses no model. It builds captions from the head
-  direction, lighting and colour it measures, instantly and offline.
+  direction, lighting and colour it measures, instantly and offline. Head
+  direction is omitted when facial landmarks are missing; it cannot describe
+  expressions, clothing, or actions.
 - `--captioner none` writes no captions.
-- `--caption-prompt` tells the model what to describe.
+- `--caption-prompt` replaces the default prompt with your own instructions.
 - `--caption-prefix` adds text after the trigger word, and `--caption-suffix`
   adds text at the end.
 - `--caption-drop REGEX` removes matching text, and can be given more than once.
