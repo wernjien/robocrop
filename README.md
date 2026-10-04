@@ -120,6 +120,11 @@ minutes. It's done when it prints `robocrop: setup complete`.
 
 It also creates `robocrop.toml`, your [settings file](#settings-file).
 
+**Using Anaconda or Miniconda?** The launchers use their own `.venv`, even
+when a Conda environment is active. To use the Python and CUDA-enabled PyTorch
+in your Conda environment, follow [the Anaconda setup](docs/install.md#use-an-anaconda-or-miniconda-environment-on-windows)
+and run `python -m robocrop` instead of `.\robocrop.cmd`.
+
 ### 4. Try it
 
 Put a few photos of a person in `~/Pictures/test-photos`, then run:

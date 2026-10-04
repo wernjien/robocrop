@@ -49,6 +49,68 @@ On Windows, pip installs a CPU-only PyTorch. To use the GPU:
 Captioning runs then print `loading caption model … on cuda` rather than
 `on cpu`. To force the CPU on any system, add `--caption-device cpu`.
 
+### Use an Anaconda or Miniconda environment on Windows
+
+The launchers (`.\robocrop.cmd` and `./robocrop`) use a private `.venv` by
+default, even when a Conda environment is active. A working CUDA installation
+in Conda does not make CUDA available in that private environment.
+
+To use your existing Conda environment, open PowerShell with Conda available,
+change to the RoboCrop project folder, and activate your environment (named
+`robocrop` in these examples). It needs Python 3.11 or newer.
+
+```powershell
+conda activate robocrop
+python -m pip install -r requirements.txt -r requirements-caption.txt
+$env:PYTHONPATH = (Join-Path $PWD "src")
+python -m robocrop --help
+```
+
+Use `python -m robocrop` in place of `.\robocrop.cmd` in the other examples.
+This runs the active environment's Python; it does not perform the launcher's
+automatic dependency setup. `--setup` belongs to the launchers; use the pip
+commands above instead. To create the settings file if you do not already have
+one, copy `robocrop.example.toml` to `robocrop.toml`.
+
+`PYTHONPATH` tells Python where to find RoboCrop's source. Set it once per
+PowerShell window, from the project folder. To save that absolute path for
+future activations of this Conda environment, run these commands after setting
+it above:
+
+```powershell
+conda env config vars set -n robocrop "PYTHONPATH=$env:PYTHONPATH"
+conda deactivate
+conda activate robocrop
+```
+
+This replaces any existing `PYTHONPATH` saved for that environment. If you move
+the project folder, save the new path. See [Conda's environment variable guidance](https://docs.conda.io/projects/conda/en/stable/user-guide/tasks/manage-environments.html#setting-environment-variables).
+Continue running from the project folder so RoboCrop finds your settings file
+and relative paths.
+
+Before GPU captioning, check CUDA in the same environment you will run:
+
+```powershell
+python -c "import sys, torch; print('Python:', sys.executable); print('Torch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print(torch.ones(1, device='cuda'))"
+```
+
+The tensor must load on `cuda:0`. If `CUDA build` is `None` or you see
+`Torch not compiled with CUDA enabled`, install a CUDA-enabled build using
+[PyTorch's installation selector](https://pytorch.org/get-started/locally/),
+replacing its `pip3` with `python -m pip` in the active Conda environment.
+Then repeat the check.
+
+To retry missing captions in an existing RoboCrop dataset:
+
+```powershell
+python -m robocrop -o .\dataset --caption-only --resume --caption-model qwen --caption-device cuda --caption-batch 1
+```
+
+Replace `.\dataset` with the folder containing the crops and `manifest.jsonl`.
+Caption-only mode reads `--output` (`-o`), not `--input` (`-i`). To rewrite
+selected captions with a new prompt, omit `--resume` and add `--caption-images`
+and `--caption-prompt`; resume preserves captions that already contain text.
+
 ### Crop without the caption libraries
 
 `ROBOCROP_NO_VLM=1` skips the caption dependencies (transformers and accelerate).

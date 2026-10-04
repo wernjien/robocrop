@@ -54,6 +54,19 @@ This is usually a dropped connection. Press Ctrl + C and run the command
 again. If it keeps failing, delete the `.venv` folder inside `robocrop` and
 try once more.
 
+### `Torch not compiled with CUDA enabled`, but CUDA works in Anaconda
+
+The CUDA test and RoboCrop may be using different Python environments.
+`.\robocrop.cmd` uses its private `.venv` even when you have activated Conda.
+Use [the Anaconda setup](install.md#use-an-anaconda-or-miniconda-environment-on-windows)
+to run `python -m robocrop` with your active environment, or install
+[CUDA-enabled PyTorch in the launcher's environment](install.md#use-an-nvidia-gpu-on-windows).
+
+`--caption-device cuda` requests the GPU; it cannot add CUDA support to a
+CPU-only PyTorch build. The `loading caption model ... on cuda` message prints
+before the model moves to the GPU, so it alone does not confirm successful
+GPU loading.
+
 ### Dependency installation fails on an Intel Mac
 
 The current core requirements include PyTorch and ONNX Runtime versions
