@@ -148,5 +148,8 @@ trigger       = ""
 # Start with 1 for JoyCaption (including NF4) or Huihui to reduce peak memory use.
 caption_batch = 4
 
+# Maximum generated tokens per caption; generation can finish earlier.
+caption_tokens = 256
+
 # Remove phrases you never want in a caption:
 # caption_drop = ["\\bblurry\\b", ",?\\s*watermark"]

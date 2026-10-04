@@ -97,7 +97,7 @@ class Config:
     caption_prompt: str = ""  # empty = the backend default
     caption_device: str = "auto"
     caption_batch: int = 4
-    caption_tokens: int = 96
+    caption_tokens: int = 256
     caption_template: str = ""  # template backend only
     trigger: str = ""
     caption_prefix: str = ""

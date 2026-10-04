@@ -104,7 +104,7 @@ class VLMCaptioner(BaseCaptioner):
         *,
         device: str = "auto",
         prompt: str = DEFAULT_PROMPT,
-        max_new_tokens: int = 96,
+        max_new_tokens: int = 256,
         batch_size: int = 4,
         num_beams: int = 1,
         repetition_penalty: float = 1.15,
