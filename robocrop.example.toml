@@ -16,6 +16,11 @@ output = "./dataset"
 # yunet | haar | yolox
 detector  = "yunet"
 
+# Import a new dataset without detection/cropping or blur filtering.
+# Keep original dimensions unless no_crop or keep_size requests resizing.
+# Combine with training_config = true to also write a OneTrainer config.
+# skip_detection = true
+
 # drop detections below this confidence
 min_score = 0.8
 

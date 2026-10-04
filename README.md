@@ -249,6 +249,23 @@ RoboCrop warns when `--upscale` is enabled and the ratio is below 0.5.
 
 ### Keeping whole photos
 
+For a new dataset without `manifest.jsonl`, use `--skip-detection` to import
+whole images and generate captions without detecting or cropping subjects:
+
+```bash
+./robocrop -i ./photos -o ./dataset --skip-detection --captioner vlm --training-config
+```
+
+This writes numbered images, matching captions, a manifest, and the requested
+OneTrainer config into the output folder. Images keep their dimensions by
+default, including small images and photos without faces. They are decoded
+and saved in the selected output format, rather than copied byte for byte.
+Blur filtering is bypassed. Add `--no-crop` to resize to `--sizes`, or
+`--keep-size` to apply `--min-side` and `--max-side`. Mask options cannot be
+combined with this mode. Template captions describe lighting and colour
+without estimating head pose. For native dimensions, the training config
+keeps the template's resolution; check your trainer's aspect-ratio buckets.
+
 `--no-crop` keeps each whole photo instead of cropping around the subject. Its
 shape is kept, and its long side is resized to the largest size it reaches, so
 a 4000×3000 photo becomes 1024×768. Photos with no detection are still skipped,
@@ -672,6 +689,7 @@ before regenerating it.
     --caption-model M   caption model preset or compatible Hugging Face ID
 -t, --trigger WORD      word placed first in every caption
     --caption-only      caption an existing dataset without cropping again
+    --skip-detection    import whole images without detection or cropping
     --mask-faces        mask faces out of training
     --face-mask SHAPE   outline (the face's own shape) or oval (default outline)
     --mask-background   weight the background down

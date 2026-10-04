@@ -26,7 +26,16 @@ from typing import Any, Callable, Iterable, Iterator, Sequence
 import numpy as np
 from PIL import Image
 
-from . import captioners, clothing, detectors, face_parse, images, masks, segment, superres
+from . import (
+    captioners,
+    clothing,
+    detectors,
+    face_parse,
+    images,
+    masks,
+    segment,
+    superres,
+)
 from .captioners.base import CaptionRequest
 from .config import Config
 from .detectors.base import Region
@@ -35,7 +44,9 @@ from .geometry import CropRejected, Rect, plan_crop, plan_native, plan_whole
 MANIFEST_NAME = "manifest.jsonl"
 SUMMARY_NAME = "manifest.json"
 TRAINING_CONFIG_NAME = "training_config.json"
-ONETRAINER_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "robocrop.onetrainer.example.json"
+ONETRAINER_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[2] / "robocrop.onetrainer.example.json"
+)
 
 
 @dataclass
@@ -143,7 +154,9 @@ class _ImageResult:
 
 
 class Pipeline:
-    def __init__(self, config: Config, *, on_event: Callable[[str, str], None] | None = None):
+    def __init__(
+        self, config: Config, *, on_event: Callable[[str, str], None] | None = None
+    ):
         self.cfg = config
         self._emit = on_event or (lambda level, message: None)
         self._local = threading.local()
@@ -229,16 +242,18 @@ class Pipeline:
                 "of an oversized enlargement falls back to a plain resize",
             )
 
-        paths = list(images.iter_images(
-            cfg.input,
-            exclude=cfg.exclude,
-            follow_symlinks=cfg.follow_symlinks,
-            # With the output inside the input (the defaults: . and
-            # ./dataset), earlier crops would otherwise be re-cropped -- this
-            # run's output, and any other robocrop dataset under the input.
-            skip_dirs=(cfg.output, cfg.mask_dir) if cfg.mask_dir else (cfg.output,),
-            skip_marker=MANIFEST_NAME,
-        ))
+        paths = list(
+            images.iter_images(
+                cfg.input,
+                exclude=cfg.exclude,
+                follow_symlinks=cfg.follow_symlinks,
+                # With the output inside the input (the defaults: . and
+                # ./dataset), earlier crops would otherwise be re-cropped -- this
+                # run's output, and any other robocrop dataset under the input.
+                skip_dirs=(cfg.output, cfg.mask_dir) if cfg.mask_dir else (cfg.output,),
+                skip_marker=MANIFEST_NAME,
+            )
+        )
         if cfg.limit:
             paths = paths[: cfg.limit]
         self._emit("info", f"found {len(paths)} image(s) under {cfg.input}")
@@ -298,7 +313,9 @@ class Pipeline:
                 self.stats.scanned += 1
                 if result.error:
                     self.stats.errors += 1
-                    self.skips.append(SkipRecord(str(result.source), "error", result.error))
+                    self.skips.append(
+                        SkipRecord(str(result.source), "error", result.error)
+                    )
                     self._emit("warn", f"{result.source}: {result.error}")
                     for item in result.crops:
                         item.close()
@@ -313,7 +330,9 @@ class Pipeline:
 
                 total = len(result.crops)
                 for face_index, item in enumerate(result.crops):
-                    if face_index in self._completed_crops.get(str(result.source), set()):
+                    if face_index in self._completed_crops.get(
+                        str(result.source), set()
+                    ):
                         item.close()
                         continue
                     region, plan, crop = item.region, item.plan, item.image
@@ -322,7 +341,8 @@ class Pipeline:
                         source=str(result.source),
                         image_file=self._image_name(next_index, plan.tier),
                         caption_file=(
-                            None if cfg.captioner == "none"
+                            None
+                            if cfg.captioner == "none"
                             else self._caption_name(next_index, plan.tier)
                         ),
                         tier=plan.tier,
@@ -334,7 +354,15 @@ class Pipeline:
                         sharpness=item.sharpness,
                         padding=cfg.padding,
                         offset_y=result.offset_y,
-                        crop=[round(v, 1) for v in (plan.rect.x, plan.rect.y, plan.rect.w, plan.rect.h)],
+                        crop=[
+                            round(v, 1)
+                            for v in (
+                                plan.rect.x,
+                                plan.rect.y,
+                                plan.rect.w,
+                                plan.rect.h,
+                            )
+                        ],
                         clamped=plan.clamped,
                         extended=plan.extends,
                         face_index=face_index,
@@ -345,11 +373,13 @@ class Pipeline:
                         },
                         mask_file=(
                             self._mask_name(next_index, plan.tier)
-                            if item.mask is not None else None
+                            if item.mask is not None
+                            else None
                         ),
                         mask_dir=(
                             str(cfg.mask_dir.resolve())
-                            if item.mask is not None and cfg.mask_dir else None
+                            if item.mask is not None and cfg.mask_dir
+                            else None
                         ),
                         masked_faces=item.masked_faces,
                         background_mask=item.background,
@@ -375,7 +405,9 @@ class Pipeline:
                         self.stats.background_box += 1
                     if item.masked_clothing:
                         self.stats.clothing_masked += 1
-                    self.stats.by_tier[plan.tier] = self.stats.by_tier.get(plan.tier, 0) + 1
+                    self.stats.by_tier[plan.tier] = (
+                        self.stats.by_tier.get(plan.tier, 0) + 1
+                    )
                     next_index += 1
 
                     if cfg.verbose:
@@ -411,7 +443,7 @@ class Pipeline:
         # Outside the per-image error handling on purpose: a model that will
         # not download or load is the run's problem, not this image's, and
         # must stop the run once rather than fail every image in turn.
-        detector = self._detector()
+        detector = None if cfg.skip_detection else self._detector()
         if cfg.mask_faces:
             self._face_detector()
         if cfg.mask_background:
@@ -429,13 +461,23 @@ class Pipeline:
         # An explicit --offset-y wins; otherwise the detector says how its own
         # boxes need recentring.
         offset_y = (
-            cfg.offset_y if cfg.offset_y is not None
+            cfg.offset_y
+            if cfg.offset_y is not None
             else detector.recommended_offset_y
+            if detector is not None
+            else 0.0
         )
         result.offset_y = offset_y
         try:
-            regions = detector.detect(images.to_bgr(image))
-            result.detections = len(regions)
+            if cfg.skip_detection:
+                regions = [
+                    Region(
+                        Rect(0, 0, image.width, image.height), score=0.0, label="image"
+                    )
+                ]
+            else:
+                regions = detector.detect(images.to_bgr(image))
+                result.detections = len(regions)
 
             if not regions:
                 result.skips.append(SkipRecord(str(path), "no_detection"))
@@ -451,7 +493,7 @@ class Pipeline:
             if cfg.max_per_image:
                 regions = regions[: cfg.max_per_image]
             boxes = [r.rect for r in regions]
-            whole = cfg.no_crop or cfg.keep_size
+            whole = cfg.no_crop or cfg.keep_size or cfg.skip_detection
             if whole:
                 regions = regions[:1]  # one output per photo
 
@@ -459,12 +501,24 @@ class Pipeline:
                 try:
                     if cfg.keep_size:
                         plan = plan_native(
-                            image.width, image.height,
-                            min_side=cfg.min_side, max_side=cfg.max_side,
+                            image.width,
+                            image.height,
+                            min_side=cfg.min_side,
+                            max_side=cfg.max_side,
                         )
                     elif cfg.no_crop:
                         plan = plan_whole(
-                            image.width, image.height, sizes=cfg.sizes, min_ratio=cfg.min_ratio,
+                            image.width,
+                            image.height,
+                            sizes=cfg.sizes,
+                            min_ratio=cfg.min_ratio,
+                        )
+                    elif cfg.skip_detection:
+                        plan = plan_native(
+                            image.width,
+                            image.height,
+                            min_side=1,
+                            max_side=max(image.size),
                         )
                     else:
                         plan = plan_crop(
@@ -484,7 +538,10 @@ class Pipeline:
                     continue
 
                 crop = images.extract(
-                    image, plan, fill=cfg.fill, fill_color=cfg.fill_color,
+                    image,
+                    plan,
+                    fill=cfg.fill,
+                    fill_color=cfg.fill_color,
                     upscale=cfg.upscale,
                 )
 
@@ -492,18 +549,29 @@ class Pipeline:
                     sharpness = round(_subject_sharpness(crop, plan, region.rect), 1)
                 else:
                     inner_fraction = max(0.5, min(1.0, 1.0 / (1.0 + 2.0 * cfg.padding)))
-                    sharpness = round(images.measure_sharpness(crop, inner_fraction=inner_fraction), 1)
+                    sharpness = round(
+                        images.measure_sharpness(crop, inner_fraction=inner_fraction), 1
+                    )
 
-                if cfg.min_sharpness > 0 and sharpness < cfg.min_sharpness:
-                    result.skips.append(SkipRecord(
-                        str(path), "blurry",
-                        f"sharpness {sharpness:.1f} below {cfg.min_sharpness:.1f}",
-                        sharpness=sharpness,
-                    ))
+                if (
+                    not cfg.skip_detection
+                    and cfg.min_sharpness > 0
+                    and sharpness < cfg.min_sharpness
+                ):
+                    result.skips.append(
+                        SkipRecord(
+                            str(path),
+                            "blurry",
+                            f"sharpness {sharpness:.1f} below {cfg.min_sharpness:.1f}",
+                            sharpness=sharpness,
+                        )
+                    )
                     crop.close()
                     continue
 
-                item = _Crop(region, plan, crop, sharpness, boxes=boxes if whole else [])
+                item = _Crop(
+                    region, plan, crop, sharpness, boxes=boxes if whole else []
+                )
                 if cfg.writes_masks and not self._mask(item, path, result):
                     crop.close()
                     continue
@@ -523,11 +591,14 @@ class Pipeline:
         if cfg.mask_faces:
             faces = self._face_detector().detect(bgr)
             if not faces and cfg.mask_missing == "skip":
-                result.skips.append(SkipRecord(
-                    str(path), "no_face",
-                    "no face found to mask (--mask-missing keep to use it anyway)",
-                    sharpness=item.sharpness,
-                ))
+                result.skips.append(
+                    SkipRecord(
+                        str(path),
+                        "no_face",
+                        "no face found to mask (--mask-missing keep to use it anyway)",
+                        sharpness=item.sharpness,
+                    )
+                )
                 return False
 
         person = None
@@ -538,7 +609,11 @@ class Pipeline:
                 for r in item.boxes or [item.region.rect]
             ]
             matte = self._segmenter().matte(bgr)
-            people = [p for p in (masks.isolate_person(matte, box) for box in boxes) if p is not None]
+            people = [
+                p
+                for p in (masks.isolate_person(matte, box) for box in boxes)
+                if p is not None
+            ]
             item.background = "outline" if people else "box"
             if not people:
                 people = [masks.box_person(item.image.size, box) for box in boxes]
@@ -559,9 +634,13 @@ class Pipeline:
         # else is masked: with masked training on, a missing mask file does
         # not mean "learn everything" in every trainer.
         item.mask = masks.build_mask(
-            item.image.size, ovals, cfg.mask_margin,
-            person=person, background=cfg.background_weight,
-            clothing=garments, clothing_weight=cfg.clothing_weight,
+            item.image.size,
+            ovals,
+            cfg.mask_margin,
+            person=person,
+            background=cfg.background_weight,
+            clothing=garments,
+            clothing_weight=cfg.clothing_weight,
             face=face_matte,
         )
         item.masked_faces = len(faces)
@@ -582,7 +661,9 @@ class Pipeline:
         try:
             captioner = captioners.create(cfg.captioner, **self._caption_kwargs())
         except Exception as exc:  # noqa: BLE001
-            self._emit("warn", f"captioner unavailable ({exc}); crops were still written")
+            self._emit(
+                "warn", f"captioner unavailable ({exc}); crops were still written"
+            )
             self.stats.errors += 1
             return
 
@@ -619,7 +700,9 @@ class Pipeline:
                         continue
 
                     texts = captioner.caption_batch(requests)
-                    if len(texts) != len(live) or any(not isinstance(t, str) for t in texts):
+                    if len(texts) != len(live) or any(
+                        not isinstance(t, str) for t in texts
+                    ):
                         raise ValueError(
                             f"captioner returned {len(texts)} captions for {len(live)} images; "
                             "expected one string per image"
@@ -633,7 +716,9 @@ class Pipeline:
                             record.caption = text
                         else:
                             self.stats.errors += 1
-                            self._emit("warn", f"no caption returned for {record.image_file}")
+                            self._emit(
+                                "warn", f"no caption returned for {record.image_file}"
+                            )
                 finally:
                     for record, image in live:
                         image.close()
@@ -776,9 +861,13 @@ class Pipeline:
         records = []
         for number, row in enumerate(_read_rows(self.cfg.output / MANIFEST_NAME), 1):
             try:
-                records.append(CropRecord(**{k: v for k, v in row.items() if k in known}))
+                records.append(
+                    CropRecord(**{k: v for k, v in row.items() if k in known})
+                )
             except TypeError as exc:
-                raise ValueError(f"invalid crop record {number} in {MANIFEST_NAME}: {exc}") from exc
+                raise ValueError(
+                    f"invalid crop record {number} in {MANIFEST_NAME}: {exc}"
+                ) from exc
         return records
 
     # -- output helpers ---------------------------------------------------
@@ -810,7 +899,9 @@ class Pipeline:
         base = (root or self.cfg.output).resolve()
         path = (base / relative).resolve()
         if not path.is_relative_to(base):
-            raise ValueError(f"manifest path {relative!r} points outside {root or self.cfg.output}")
+            raise ValueError(
+                f"manifest path {relative!r} points outside {root or self.cfg.output}"
+            )
         return path
 
     def _claim(self, relative: str, root: Path | None = None) -> Path:
@@ -879,7 +970,9 @@ class Pipeline:
                 source = row["source"]
                 saved = self._completed_crops.setdefault(source, set())
                 saved.add(int(row.get("face_index", 0)))
-                expected[source] = max(expected.get(source, 1), int(row.get("faces_in_image", 1)))
+                expected[source] = max(
+                    expected.get(source, 1), int(row.get("faces_in_image", 1))
+                )
             highest = max(highest, int(row.get("index", highest)))
             self._carried.append(line)
         for source, total in expected.items():
@@ -912,7 +1005,11 @@ class Pipeline:
             targets = [(name, None) for name in filter(None, names)]
             # Only this run's --mask-dir: a folder named by the manifest alone is not trusted.
             mask_dir = self.cfg.mask_dir
-            if mask_dir and row.get("mask_file") and row.get("mask_dir") == str(mask_dir.resolve()):
+            if (
+                mask_dir
+                and row.get("mask_file")
+                and row.get("mask_dir") == str(mask_dir.resolve())
+            ):
                 targets.append((row["mask_file"], mask_dir))
             for name, root in targets:
                 try:
@@ -924,8 +1021,12 @@ class Pipeline:
                     removed += 1
         manifest.unlink()
         if removed:
-            self._emit("info", f"--overwrite: removed {removed} file(s) from the previous run")
-        if (self.cfg.output / TRAINING_CONFIG_NAME).exists() and not self.cfg.training_config:
+            self._emit(
+                "info", f"--overwrite: removed {removed} file(s) from the previous run"
+            )
+        if (
+            self.cfg.output / TRAINING_CONFIG_NAME
+        ).exists() and not self.cfg.training_config:
             # Kept, since it may carry hand edits -- but it describes the old
             # dataset (resolution, epochs, masked training) until regenerated.
             self._emit(
@@ -941,7 +1042,9 @@ class Pipeline:
         left half-written by an interruption: write a sibling, then rename.
         """
         path = self.cfg.output / MANIFEST_NAME
-        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".manifest-", suffix=".tmp")
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=".manifest-", suffix=".tmp"
+        )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 for line in lines:
@@ -957,10 +1060,12 @@ class Pipeline:
         Rows carried over from a resumed run are written back first, in their
         original order, ahead of this run's records.
         """
-        self._write_manifest([
-            *self._carried,
-            *(json.dumps(asdict(record)) for record in self.records),
-        ])
+        self._write_manifest(
+            [
+                *self._carried,
+                *(json.dumps(asdict(record)) for record in self.records),
+            ]
+        )
 
     def _write_summary(self) -> None:
         cfg = self.cfg
@@ -996,7 +1101,9 @@ class Pipeline:
         all, and floor every pixel at 0.1, which would override the mask.
         """
         if not records:
-            self._emit("warn", "no crops in the dataset, so no training config was written")
+            self._emit(
+                "warn", "no crops in the dataset, so no training config was written"
+            )
             return
         if any(r.mask_dir for r in records):
             self._emit(
@@ -1012,7 +1119,11 @@ class Pipeline:
             return
 
         # Native sizes vary per photo, so the smallest could be tiny; the template's value stands.
-        native = self.cfg.keep_size or any(r.tier not in self.cfg.sizes for r in records)
+        native = (
+            self.cfg.keep_size
+            or (self.cfg.skip_detection and not self.cfg.no_crop)
+            or any(r.tier not in self.cfg.sizes for r in records)
+        )
         if not native:
             template["resolution"] = str(min(r.tier for r in records))
         resolution = template.get("resolution")
@@ -1043,9 +1154,11 @@ class Pipeline:
         self._emit(
             "info",
             f"wrote {TRAINING_CONFIG_NAME} (resolution={resolution}"
-            + (" from the template" if native else "") + ", "
+            + (" from the template" if native else "")
+            + ", "
             f"epochs={template['epochs']}"
-            + (", masked training" if masked else "") + ")",
+            + (", masked training" if masked else "")
+            + ")",
         )
 
     # -- misc -------------------------------------------------------------
@@ -1110,7 +1223,9 @@ def _manifest_lines(path: Path) -> list[tuple[str, dict[str, Any]]]:
     if not path.exists():
         return []
     text = path.read_text(encoding="utf-8")
-    lines = [(n, line.strip()) for n, line in enumerate(text.splitlines(), 1) if line.strip()]
+    lines = [
+        (n, line.strip()) for n, line in enumerate(text.splitlines(), 1) if line.strip()
+    ]
     rows = []
     for n, line in lines:
         try:
@@ -1120,7 +1235,9 @@ def _manifest_lines(path: Path) -> list[tuple[str, dict[str, Any]]]:
                 continue  # only an unterminated final row can be a torn write
             raise ValueError(f"invalid manifest {path} at line {n}: {exc.msg}") from exc
         if not isinstance(row, dict):
-            raise ValueError(f"invalid manifest {path} at line {n}: expected a JSON object")
+            raise ValueError(
+                f"invalid manifest {path} at line {n}: expected a JSON object"
+            )
         rows.append((line, row))
     return rows
 

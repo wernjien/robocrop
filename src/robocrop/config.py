@@ -23,13 +23,15 @@ class Config:
 
     # -- detection -------------------------------------------------------
     detector: str = "yunet"
+    skip_detection: bool = False
+    """Import whole images without detecting subjects; preserve dimensions by default."""
     detector_opts: dict[str, Any] = field(default_factory=dict)
     min_score: float = 0.8
-    multi: str = "all"          # all | largest | skip
-    max_per_image: int = 0      # 0 = unlimited
+    multi: str = "all"  # all | largest | skip
+    max_per_image: int = 0  # 0 = unlimited
 
     # -- crop geometry ---------------------------------------------------
-    padding: float = 0.20       # fraction of the base side, added to EACH side
+    padding: float = 0.20  # fraction of the base side, added to EACH side
     sizes: tuple[int, ...] = (256, 512, 768, 1024)
     min_ratio: float = 0.80
     no_crop: bool = False
@@ -59,7 +61,9 @@ class Config:
     Needs a body/object detector; a face detector's crops would be all mask."""
     face_mask: str = "outline"
     """outline: SegFace facial parts | oval: an ellipse over the head."""
-    mask_margin: float = 0.35   # fraction of the face box added to EACH side, for oval masks
+    mask_margin: float = (
+        0.35  # fraction of the face box added to EACH side, for oval masks
+    )
     mask_missing: str = "skip"  # skip | keep -- a crop where no face was found
     mask_min_score: float = 0.5
     """Lower than min_score on purpose: a missed face is learned, while a
@@ -83,14 +87,14 @@ class Config:
     prefix: str = ""
     start_index: int = 1
     digits: int = 4
-    format: str = "png"         # png | jpg | webp
+    format: str = "png"  # png | jpg | webp
     quality: int = 95
     per_size_dirs: bool = False
 
     # -- captions --------------------------------------------------------
     captioner: str = "vlm"
     caption_model: str = "smolvlm"
-    caption_prompt: str = ""    # empty = the backend default
+    caption_prompt: str = ""  # empty = the backend default
     caption_device: str = "auto"
     caption_batch: int = 4
     caption_tokens: int = 96
@@ -102,13 +106,13 @@ class Config:
     caption_max_chars: int = 0
 
     # -- run -------------------------------------------------------------
-    workers: int = 0            # 0 = auto
+    workers: int = 0  # 0 = auto
     dry_run: bool = False
     resume: bool = False
     overwrite: bool = False
     quiet: bool = False
     verbose: bool = False
-    limit: int = 0              # 0 = no limit
+    limit: int = 0  # 0 = no limit
 
     # -- training config ---------------------------------------------------
     training_config: bool = False
@@ -123,9 +127,18 @@ class Config:
     def validate(self) -> None:
         problems: list[str] = []
 
-        for name in ("padding", "min_ratio", "min_score", "min_sharpness", "offset_x",
-                     "offset_y", "mask_margin", "mask_min_score", "background_weight",
-                     "clothing_weight"):
+        for name in (
+            "padding",
+            "min_ratio",
+            "min_score",
+            "min_sharpness",
+            "offset_x",
+            "offset_y",
+            "mask_margin",
+            "mask_min_score",
+            "background_weight",
+            "clothing_weight",
+        ):
             value = getattr(self, name)
             if value is not None and not math.isfinite(value):
                 problems.append(f"--{name.replace('_', '-')} must be finite")
@@ -154,8 +167,9 @@ class Config:
             problems.append("--edge must be shift, extend or skip")
         if self.fill not in ("edge", "blur", "reflect", "color"):
             problems.append("--fill must be edge, blur, reflect or color")
-        if (len(self.fill_color) != 3
-                or any(type(c) is not int or not 0 <= c <= 255 for c in self.fill_color)):
+        if len(self.fill_color) != 3 or any(
+            type(c) is not int or not 0 <= c <= 255 for c in self.fill_color
+        ):
             problems.append("--fill-color must contain three integers in [0, 255]")
         if self.base_mode not in ("max", "mean", "width", "height", "diag"):
             problems.append("--base-mode must be max, mean, width, height or diag")
@@ -165,13 +179,23 @@ class Config:
             problems.append("--caption-device must be auto, mps, cuda or cpu")
         for name in ("min_score", "quiet"):
             if name in self.detector_opts:
-                problems.append(f"use --{name.replace('_', '-')} instead of --detector-opt {name}")
+                problems.append(
+                    f"use --{name.replace('_', '-')} instead of --detector-opt {name}"
+                )
         for pattern in self.caption_drop:
             try:
                 re.compile(pattern)
             except re.error as exc:
-                problems.append(f"--caption-drop has an invalid regular expression: {exc}")
-        for name in ("workers", "limit", "max_per_image", "start_index", "caption_max_chars"):
+                problems.append(
+                    f"--caption-drop has an invalid regular expression: {exc}"
+                )
+        for name in (
+            "workers",
+            "limit",
+            "max_per_image",
+            "start_index",
+            "caption_max_chars",
+        ):
             if getattr(self, name) < 0:
                 # A negative --limit or --max-per-image would slice from the
                 # end and silently drop the last photos or detections.
@@ -206,7 +230,11 @@ class Config:
                 "--mask-clothing parses people, so it needs a face "
                 "detector or --detector yolox with classes including person"
             )
-        if self.mask_faces and self.detector in ("yunet", "haar") and not (self.no_crop or self.keep_size):
+        if (
+            self.mask_faces
+            and self.detector in ("yunet", "haar")
+            and not (self.no_crop or self.keep_size)
+        ):
             problems.append(
                 "--mask-faces needs a body or object detector (e.g. --detector "
                 "yolox), or --no-crop / --keep-size; with a face detector every crop would be all mask"
@@ -225,12 +253,22 @@ class Config:
                 )
         if self.no_crop and self.keep_size:
             problems.append("--no-crop and --keep-size are mutually exclusive")
+        if self.skip_detection and self.writes_masks:
+            problems.append("--skip-detection cannot be combined with mask options")
+        if self.skip_detection and (self.caption_only or self.training_config_only):
+            problems.append(
+                "--skip-detection imports new images; do not combine it with manifest-only modes"
+            )
         if self.min_side < 1 or self.max_side < self.min_side:
-            problems.append("--min-side must be at least 1, and --max-side at least --min-side")
+            problems.append(
+                "--min-side must be at least 1, and --max-side at least --min-side"
+            )
         if self.overwrite and self.resume:
             problems.append("--overwrite and --resume are mutually exclusive")
         if self.caption_only and self.training_config_only:
-            problems.append("--caption-only and --training-config-only are mutually exclusive")
+            problems.append(
+                "--caption-only and --training-config-only are mutually exclusive"
+            )
         if self.caption_only and self.captioner == "none":
             problems.append("--caption-only needs a --captioner other than 'none'")
 
@@ -242,7 +280,9 @@ class Config:
             return True  # faces, or a custom detector we cannot see into
         classes = self.detector_opts.get("classes", "person")
         if not isinstance(classes, (str, list, tuple)):
-            raise ValueError("--detector-opt classes must be a comma-separated string or a list")
+            raise ValueError(
+                "--detector-opt classes must be a comma-separated string or a list"
+            )
         names = classes.split(",") if isinstance(classes, str) else classes
         names = {str(n).strip().lower() for n in names if str(n).strip()}
         return not names or bool(names & {"person", "all"})  # empty means all
@@ -276,8 +316,10 @@ def _check_template(template: str) -> str:
     try:
         template.format(**{token: "" for token in TOKENS})
     except KeyError as exc:
-        return (f"--caption-template has an unknown token {exc}; "
-                f"available: {', '.join(sorted(TOKENS))}")
+        return (
+            f"--caption-template has an unknown token {exc}; "
+            f"available: {', '.join(sorted(TOKENS))}"
+        )
     except (IndexError, ValueError, AttributeError, TypeError) as exc:
         return f"--caption-template is not a valid format string: {exc}"
     return ""
@@ -314,9 +356,7 @@ def load_toml(path: Path) -> dict[str, Any]:
         out[name] = value
 
     if unknown:
-        raise ValueError(
-            f"unknown key(s) in {path}: {', '.join(sorted(unknown))}"
-        )
+        raise ValueError(f"unknown key(s) in {path}: {', '.join(sorted(unknown))}")
     return out
 
 
@@ -335,8 +375,12 @@ def _check_toml_type(name: str, value: Any, default: Any) -> None:
     elif isinstance(default, tuple):
         entry_type = int if name in ("sizes", "fill_color") else str
         valid = isinstance(value, list) and all(type(v) is entry_type for v in value)
-        expected = "an array of integers" if entry_type is int else "an array of strings"
+        expected = (
+            "an array of integers" if entry_type is int else "an array of strings"
+        )
     else:
         valid, expected = isinstance(value, dict), "a table"
     if not valid:
-        raise ValueError(f"invalid configuration: {name.replace('_', '-')} must be {expected}")
+        raise ValueError(
+            f"invalid configuration: {name.replace('_', '-')} must be {expected}"
+        )
