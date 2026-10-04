@@ -2,7 +2,7 @@
 # Skip with ROBOCROP_NO_VLM=1 if you only want crops or template captions.
 torch>=2.2
 torchvision>=0.17     # image processors for several VLM families
-transformers>=4.40
+transformers>=4.57.1  # native Qwen3-VL support, including the Huihui preset
 accelerate>=0.30
 safetensors>=0.4
 sentencepiece>=0.2

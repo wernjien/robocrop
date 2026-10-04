@@ -1,0 +1,6 @@
+# Optional JoyCaption NF4 support. Install in the same environment as RoboCrop.
+# First install a CUDA-enabled PyTorch build appropriate for your NVIDIA GPU.
+-r requirements-caption.txt
+torch>=2.7
+torchvision>=0.22
+bitsandbytes>=0.48.1

@@ -321,13 +321,68 @@ my subject, facing right, smiling, blonde short hair, blue t shirt over denim ja
 |---|---|---|
 | `smolvlm` | ~4.5 GB | The default |
 | `smolvlm-small` | ~1.0 GB | The lightest, with rougher captions |
-| `qwen` | ~7.5 GB | The most detailed; needs 16 GB or more of free memory |
+| `qwen` | ~7.5 GB | Qwen2.5-VL 3B; detailed captions, needs 16 GB or more of free memory |
+| `joycaption` | ~17 GB | JoyCaption Beta One; designed for uncensored diffusion training captions; allow 24 GB or more of free memory |
+| `joycaption-nf4` | ~17 GB | Same model loaded in 4-bit NF4; NVIDIA CUDA and optional bitsandbytes dependency required; start with batch 1 |
+| `huihui-qwen3-vl-4b` | ~9 GB | Qwen3-VL 4B with refusal tuning reduced; allow 16 GB or more of free memory |
 | `blip` | ~1.9 GB | The fastest; short, generic captions, and ignores `--caption-prompt` |
 
 You can also supply a compatible Hugging Face image-text-to-text model ID.
 Models that need custom remote code are not supported. `./robocrop --list-models`
 shows the bundled presets. If memory is tight, try `--caption-batch 1`, the
 smaller model, or template captions. Review generated captions before training.
+
+For uncensored captioning, try [JoyCaption Beta One](https://huggingface.co/fancyfeast/llama-joycaption-beta-one-hf-llava)
+or [Huihui Qwen3-VL 4B](https://huggingface.co/huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated).
+JoyCaption is trained specifically for image captions with SFW and NSFW coverage;
+Huihui modifies Qwen3-VL to reduce refusals. Neither guarantees factual accuracy
+or refusal-free output. Both support the default instruction and custom prompts.
+Start with one image per batch:
+
+```bash
+./robocrop -i ./photos -o ./dataset --caption-model joycaption --caption-batch 1
+./robocrop -o ./dataset --caption-only --caption-model huihui-qwen3-vl-4b --caption-batch 1
+```
+
+Memory figures are starting estimates for GPU or Apple silicon inference;
+CPU inference uses float32 weights and needs substantially more memory.
+These presets require Transformers 4.57.1 or newer. The launcher installs the
+updated requirement automatically; if you run Python directly in an existing
+environment, upgrade with `python -m pip install -r requirements-caption.txt`.
+
+For JoyCaption on a smaller NVIDIA GPU, use `joycaption-nf4`. It downloads the
+same original weights and quantizes the language model during loading; the
+vision tower and projector stay in floating point. Upstream documents an
+[8 GB VRAM setup](https://github.com/fpgaminer/joycaption/blob/main/gradio-app/README.md),
+though actual memory use depends on batch size and caption length. Start with
+batch 1 on an RTX 5070 Ti. Quantization can change caption quality.
+
+Install the optional dependencies in the environment you use to run RoboCrop:
+
+```bash
+# Launcher environment on macOS/Linux:
+./.venv/bin/python -m pip install -r requirements-caption-nf4.txt
+# Launcher environment on Windows:
+.\.venv\Scripts\python.exe -m pip install -r requirements-caption-nf4.txt
+# Anaconda or another environment used with python -m robocrop:
+python -m pip install -r requirements-caption-nf4.txt
+```
+
+First install a CUDA-enabled PyTorch build using the
+[official PyTorch installer](https://pytorch.org/get-started/locally/).
+RTX 50 series GPUs need a Blackwell-compatible build (PyTorch 2.7 or newer,
+with CUDA 12.8 or newer) and compatible NVIDIA drivers. Installing bitsandbytes
+alone does not make a CPU-only PyTorch installation CUDA-capable. The regular
+launcher does not install the NF4 extras automatically.
+
+```bash
+./robocrop -i ./photos -o ./dataset --caption-model joycaption-nf4 --caption-device cuda --caption-batch 1
+```
+
+On Windows, use `.\robocrop.cmd` with the same options. In your settings file,
+set `caption_model = "joycaption-nf4"` and `caption_batch = 1`.
+This preset requires NVIDIA CUDA; it reports an error on CPU or Apple silicon
+instead of loading the full-precision model.
 
 - `--captioner template` uses no model. It builds captions from the head
   direction, lighting and colour it measures, instantly and offline.

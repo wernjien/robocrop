@@ -3,7 +3,7 @@
 Handles two model families behind one interface:
 
 * **caption models** (BLIP) - take an image and emit a caption directly.
-* **instruction models** (SmolVLM, Qwen2.5-VL, LLaVA, ...) - take an image plus
+* **instruction models** (SmolVLM, Qwen-VL, JoyCaption, ...) - take an image plus
   a prompt, so the caption can be steered toward training-caption style.
 
 Weights are downloaded once into the Hugging Face cache and reused offline.
@@ -12,6 +12,7 @@ Weights are downloaded once into the Hugging Face cache and reused offline.
 from __future__ import annotations
 
 import os
+from importlib.util import find_spec
 from typing import Any
 
 from .base import BaseCaptioner, CaptionRequest
@@ -32,6 +33,21 @@ PRESETS: dict[str, tuple[str, str, str]] = {
         "Qwen/Qwen2.5-VL-3B-Instruct",
         "~7.5 GB",
         "best detail; wants 16 GB+ of free memory",
+    ),
+    "joycaption": (
+        "fancyfeast/llama-joycaption-beta-one-hf-llava",
+        "~17 GB",
+        "uncensored diffusion captions; allow 24 GB+ of free memory, batch 1",
+    ),
+    "joycaption-nf4": (
+        "fancyfeast/llama-joycaption-beta-one-hf-llava",
+        "~17 GB",
+        "4-bit NF4; NVIDIA CUDA + bitsandbytes required; start with batch 1",
+    ),
+    "huihui-qwen3-vl-4b": (
+        "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated",
+        "~9 GB",
+        "Qwen3-VL with reduced refusals; allow 16 GB+ of free memory, batch 1",
     ),
     "blip": (
         "Salesforce/blip-image-captioning-large",
@@ -93,6 +109,7 @@ class VLMCaptioner(BaseCaptioner):
     ) -> None:
         super().__init__(**caption_kwargs)
         self.model_id = resolve_model(model)
+        self.quantization = "nf4" if model == "joycaption-nf4" else None
         self.prompt = prompt
         self.max_new_tokens = int(max_new_tokens)
         self.batch_size = max(1, int(batch_size))
@@ -116,6 +133,32 @@ class VLMCaptioner(BaseCaptioner):
         # bfloat16 halves memory and is native on Apple silicon and modern GPUs;
         # CPU inference stays in float32 where bf16 is emulated and slower.
         self.dtype = torch.float32 if self.device == "cpu" else torch.bfloat16
+        self._quantization_config = None
+        if self.quantization == "nf4":
+            if self.device != "cuda" or not torch.cuda.is_available():
+                raise RuntimeError(
+                    "joycaption-nf4 requires an available NVIDIA CUDA GPU; "
+                    "use --caption-model joycaption for CPU or Apple silicon"
+                )
+            if find_spec("bitsandbytes") is None:
+                raise RuntimeError(
+                    "joycaption-nf4 needs bitsandbytes; install it in RoboCrop's "
+                    "Python environment with python -m pip install "
+                    "-r requirements-caption-nf4.txt"
+                )
+            if not torch.cuda.is_bf16_supported():
+                self.dtype = torch.float16
+            from transformers import BitsAndBytesConfig
+
+            self._quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=self.dtype,
+                bnb_4bit_use_double_quant=True,
+                # Keep SigLIP and the projector in floating point, as upstream
+                # does: quantizing these can break vision inference.
+                llm_int8_skip_modules=["vision_tower", "multi_modal_projector"],
+            )
 
         if not quiet:
             print(
@@ -126,6 +169,8 @@ class VLMCaptioner(BaseCaptioner):
 
         config = AutoConfig.from_pretrained(self.model_id, trust_remote_code=False)
         self.family = "blip" if getattr(config, "model_type", "") == "blip" else "chat"
+        if self.model_id == PRESETS["joycaption"][0]:
+            self.family = "joycaption"
         self.processor = AutoProcessor.from_pretrained(self.model_id)
         self._model = self._load_model()
         self._model.eval()
@@ -139,9 +184,26 @@ class VLMCaptioner(BaseCaptioner):
                 tokenizer.pad_token = tokenizer.eos_token
 
     def _load_model(self):
-        from transformers import AutoModelForImageTextToText, BlipForConditionalGeneration
+        from transformers import (
+            AutoModelForImageTextToText,
+            BlipForConditionalGeneration,
+        )
 
-        cls = BlipForConditionalGeneration if self.family == "blip" else AutoModelForImageTextToText
+        cls = (
+            BlipForConditionalGeneration
+            if self.family == "blip"
+            else AutoModelForImageTextToText
+        )
+        if self._quantization_config is not None:
+            # Quantize directly onto the GPU. Moving a quantized model with
+            # .to() afterwards is unsupported by some bitsandbytes versions.
+            return cls.from_pretrained(
+                self.model_id,
+                torch_dtype=self.dtype,
+                quantization_config=self._quantization_config,
+                device_map={"": self.device},
+                trust_remote_code=False,
+            )
         try:
             model = cls.from_pretrained(self.model_id, dtype=self.dtype)
         except TypeError:
@@ -183,19 +245,16 @@ class VLMCaptioner(BaseCaptioner):
             texts = self.processor.batch_decode(ids, skip_special_tokens=True)
             return [t.strip() for t in texts]
 
-        messages = [
-            [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": self.prompt}]}]
-            for _ in chunk
-        ]
-        prompts = [
-            self.processor.apply_chat_template(m, add_generation_prompt=True) for m in messages
-        ]
+        prompts = [self._format_prompt() for _ in chunk]
         inputs = self.processor(
             text=prompts, images=images, return_tensors="pt", padding=True
         )
         inputs = {
             k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in inputs.items()
         }
+        # Vision towers need image tensors in the same dtype as their weights.
+        if "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(self.dtype)
         with torch.inference_mode():
             ids = self._model.generate(
                 **inputs, do_sample=False, **self._generate_kwargs()
@@ -205,6 +264,28 @@ class VLMCaptioner(BaseCaptioner):
         new_ids = ids[:, prompt_len:]
         texts = self.processor.batch_decode(new_ids, skip_special_tokens=True)
         return [t.strip() for t in texts]
+
+    def _format_prompt(self) -> str:
+        if self.family == "joycaption":
+            # JoyCaption's template inserts the image token itself and calls
+            # string methods on content. Multimodal content lists fail here.
+            messages = [
+                {"role": "system", "content": "You are a helpful image captioner."},
+                {"role": "user", "content": self.prompt},
+            ]
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": self.prompt},
+                    ],
+                }
+            ]
+        return self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
 
     def _generate_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {

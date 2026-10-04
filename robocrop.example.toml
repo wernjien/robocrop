@@ -126,13 +126,16 @@ digits  = 4
 # vlm | template | none
 captioner     = "vlm"
 
-# see ./robocrop --list-models
+# smolvlm | smolvlm-small | qwen | joycaption | joycaption-nf4 | huihui-qwen3-vl-4b | blip
+# see ./robocrop --list-models for downloads and memory guidance
 caption_model = "smolvlm"
 
 # optional: a unique word the trained model binds the subject to
 # e.g. "my subject" or leave empty for no trigger
 trigger       = ""
 
+# joycaption-nf4 needs NVIDIA CUDA and requirements-caption-nf4.txt.
+# Start with 1 for JoyCaption (including NF4) or Huihui to reduce peak memory use.
 caption_batch = 4
 
 # Remove phrases you never want in a caption:
